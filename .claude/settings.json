@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "(curl -s -m 1 -G http://localhost:4123/notify --data-urlencode state=done --data-urlencode \"ai=$(basename \"${CLAUDE_PROJECT_DIR:-Claude}\")\" >/dev/null 2>&1 &)"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "(curl -s -m 1 -G http://localhost:4123/notify --data-urlencode state=waiting --data-urlencode \"ai=$(basename \"${CLAUDE_PROJECT_DIR:-Claude}\")\" >/dev/null 2>&1 &)"
+          }
+        ]
+      }
+    ]
+  }
+}

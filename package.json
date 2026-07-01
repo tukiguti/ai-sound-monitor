@@ -1,0 +1,10 @@
+{
+  "name": "ai-sound-monitor",
+  "version": "0.1.0",
+  "description": "複数AIの同時運用を音で伝える (情報論2026 第11回 アプリ開発PBL)",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "license": "MIT"
+}

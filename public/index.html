@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Sound Monitor — AI音モニター</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="title-block">
+      <h1>🔊 AI Sound Monitor</h1>
+      <p class="subtitle">複数AIの同時運用を「音」で伝える — 最小構成 (P0)</p>
+    </div>
+    <div class="header-actions">
+      <span id="conn" class="conn conn--off">● 未接続</span>
+      <button id="enableBtn" class="enable-btn" type="button">🔊 音を有効にする</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel hint-panel">
+      <p>
+        ターミナルからイベントを送ると、状態ごとの音が鳴ります。
+        まず右上の <strong>「音を有効にする」</strong> を一度押してください（ブラウザの音を解禁するために必要です）。
+      </p>
+      <pre class="cmd">curl "http://localhost:4123/notify?state=done&amp;ai=test"</pre>
+    </section>
+
+    <section class="panel">
+      <h2>状態と音</h2>
+      <p class="hint">「試聴」で各状態の音を確認できます。画面を見ずに音だけで区別できるか試してみてください。</p>
+      <ul id="legend" class="legend"></ul>
+    </section>
+
+    <section class="panel">
+      <h2>受信ログ</h2>
+      <p id="emptyLog" class="empty">まだイベントを受信していません。</p>
+      <ul id="log" class="log"></ul>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <p>情報論 2026 第11回 アプリ開発PBL ／ P0: 1ターミナル → web → 音</p>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
