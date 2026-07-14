@@ -4,6 +4,8 @@
 //   ① サーバの /events (SSE) に繋ぐ
 //   ② 接続時のスナップショットで「今の盤面」を描く
 //   ③ イベントが来たら 状態ごとの音を鳴らし、盤面とログを更新する
+//   ④ セッション終了(remove)が来たら盤面から取り除く
+//   ⑤ 状態ごとに音のON/OFFを切り替えられる(通知疲れ対策・localStorageに保存)
 
 // --- 状態の定義 ---
 // priority: 小さいほど上に表示（要対応を先頭に持ってくる）
@@ -18,6 +20,9 @@ const stateOf = (key) => STATES[key] || STATES.done;
 // ===== 音の生成 (Web Audio API / 外部ファイル不要) =====
 let audioCtx = null;
 let enabled = false;
+
+// 状態ごとの音ON/OFF設定(falseで消音。未設定はON)
+const soundPrefs = JSON.parse(localStorage.getItem('soundPrefs') || '{}');
 
 function enableAudio() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -51,8 +56,10 @@ const SOUND = {
   working: () => { const t = audioCtx.currentTime; tone(440, t, 0.08, 'sine', 0.1); },
 };
 
-function playState(state) {
+// force=true は試聴ボタン用(OFF設定でも鳴らす)
+function playState(state, force = false) {
   if (!enabled || !audioCtx) return;
+  if (!force && soundPrefs[state] === false) return;
   (SOUND[state] || SOUND.done)();
 }
 
@@ -130,20 +137,52 @@ function addLog(event) {
   logEl.prepend(li);
 }
 
-// ===== 凡例 (試聴つき) =====
+// セッション終了のログ(音なし・控えめ表示)
+function addEndLog(msg) {
+  emptyLog.style.display = 'none';
+  const time = new Date(msg.time || Date.now()).toLocaleTimeString('ja-JP');
+  const li = document.createElement('li');
+  li.className = 'log-item log-item--end';
+  li.innerHTML =
+    `<span class="log-time">${time}</span>` +
+    `<span class="log-ai">${escapeHtml(msg.ai)}</span>` +
+    `<span class="log-msg">🚪 セッション終了（盤面から削除）</span>`;
+  logEl.prepend(li);
+}
+
+// ===== 凡例 (試聴 + 音ON/OFFつき) =====
 const legendEl = document.getElementById('legend');
 for (const [key, s] of Object.entries(STATES)) {
   const li = document.createElement('li');
   li.className = 'legend-item';
   li.style.borderLeftColor = s.color;
+
   const label = document.createElement('span');
   label.className = 'legend-label';
   label.textContent = `${s.emoji} ${s.label}`;
+
+  const controls = document.createElement('div');
+  controls.className = 'legend-controls';
+
+  // 音のON/OFF(状態ごと・localStorageに保存)
+  const toggle = document.createElement('label');
+  toggle.className = 'sound-toggle';
+  const box = document.createElement('input');
+  box.type = 'checkbox';
+  box.checked = soundPrefs[key] !== false;
+  box.addEventListener('change', () => {
+    soundPrefs[key] = box.checked;
+    localStorage.setItem('soundPrefs', JSON.stringify(soundPrefs));
+  });
+  toggle.append(box, document.createTextNode('音'));
+
   const btn = document.createElement('button');
   btn.className = 'try-btn';
   btn.textContent = '試聴';
-  btn.addEventListener('click', () => { if (!enabled) enableAudio(); playState(key); });
-  li.append(label, btn);
+  btn.addEventListener('click', () => { if (!enabled) enableAudio(); playState(key, true); });
+
+  controls.append(toggle, btn);
+  li.append(label, controls);
   legendEl.appendChild(li);
 }
 
@@ -175,6 +214,14 @@ function connect() {
       // 接続直後（またはクリア後）: 今の盤面を丸ごと反映。音は鳴らさない
       agents = new Map(msg.agents.map((a) => [a.ai, a]));
       renderBoard();
+      return;
+    }
+
+    if (msg.type === 'remove') {
+      // セッション終了: 盤面から取り除く。音は鳴らさない
+      agents.delete(msg.ai);
+      renderBoard();
+      addEndLog(msg);
       return;
     }
 

@@ -25,7 +25,7 @@
         <h2>監視中のAI <span id="count" class="count">0</span></h2>
         <button id="clearBtn" class="ghost-btn" type="button">一覧をクリア</button>
       </div>
-      <p class="hint">要対応（承認待ち・エラー）が上に来ます。イベントが届いたAIは自動で追加されます。</p>
+      <p class="hint">要対応（承認待ち・エラー）が上に来ます。Claude Code のセッションは「プロジェクト名#セッションID」として自動で追加され、セッション終了時に盤面から消えます。</p>
       <p id="emptyBoard" class="empty">
         まだAIがいません。ターミナルからイベントを送るか、そのディレクトリで Claude Code を起動してください。
       </p>
@@ -35,7 +35,7 @@
     <!-- 状態と音の凡例 -->
     <section class="panel">
       <h2>状態と音</h2>
-      <p class="hint">「試聴」で各状態の音を確認できます。画面を見ずに音だけで区別できるか試してみてください。</p>
+      <p class="hint">「試聴」で各状態の音を確認できます。「音」のチェックを外すと、その状態の通知音だけを消せます（通知疲れ対策・ブラウザに保存）。</p>
       <ul id="legend" class="legend"></ul>
       <pre class="cmd">curl -G "http://localhost:4123/notify" --data-urlencode state=done --data-urlencode ai=テスト版</pre>
     </section>

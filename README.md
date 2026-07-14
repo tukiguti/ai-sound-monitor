@@ -35,6 +35,7 @@ curl "http://localhost:4123/notify?state=done&ai=リサーチ版"
 ```
 
 `state` は `done`（完了）/ `waiting`（承認待ち）/ `error`（エラー）/ `working`（実行中）。
+特別な state として `ended` を送ると、そのAIを盤面から取り除く（SessionEnd hook 用）。
 `ai` は表示名、`message` は補足メッセージ（任意）。
 
 同じ `ai` 名で再送すると、その AI の状態が**上書き**される（重複して増えない）。
@@ -54,9 +55,13 @@ curl "http://localhost:4123/notify?state=done&ai=リサーチ版"
 - [x] ローカルサーバがイベントを受けてブラウザへ中継（SSE）
 - [x] 状態ごとに区別できる音を再生（Web Audio API・音源ファイル不要）
 - [x] 受信ログの表示
-- [x] Claude Code の Stop / Notification hook を設定（`.claude/settings.json`）※このディレクトリでセッションを開くと発火（実発火確認済）
+- [x] Claude Code hook 連携（`.claude/settings.json`）— UserPromptSubmit=実行中 / Stop=完了 / Notification=承認待ち / SessionEnd=盤面から削除 の4イベント（実セッション2本並行で動作確認済）
 - [x] **複数AIの現在状態をダッシュボード表示（P1）** — イベントが届いたAIを自動登録、要対応（承認待ち・エラー）を上に表示
 - [x] **サーバが現在状態を保持** — 後からブラウザを開いても、その時点の盤面が見える（接続時にスナップショットを送信）
+- [x] **セッション単位の監視** — AI名は「プロジェクト名#セッションID先頭6文字」。同一プロジェクトで複数セッションを開いても別々に表示され、セッション終了時に盤面から自動削除される
+- [x] **実行中の可視化** — 指示を出した瞬間に🔄実行中になる（UserPromptSubmit hook）
+- [x] **状態ごとの音ON/OFF** — 通知疲れ対策。凡例のチェックで消音でき、ブラウザ(localStorage)に保存
+- [x] **盤面の永続化** — `.state.json` に保存し、サーバ再起動後も復元
 - [ ] VOICEVOX で「〇〇版が承認待ちです」と読み上げ（P2）
 - [ ] Discord 通知（P2）
 

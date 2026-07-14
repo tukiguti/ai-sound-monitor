@@ -1,13 +1,24 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "input=$(cat); sid=$(printf '%s' \"$input\" | jq -r '.session_id // empty' 2>/dev/null | cut -c1-6); name=\"$(basename \"${CLAUDE_PROJECT_DIR:-Claude}\")${sid:+#$sid}\"; (curl -s -m 1 -G http://localhost:4123/notify --data-urlencode state=working --data-urlencode \"ai=$name\" >/dev/null 2>&1 &)"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "(curl -s -m 1 -G http://localhost:4123/notify --data-urlencode state=done --data-urlencode \"ai=$(basename \"${CLAUDE_PROJECT_DIR:-Claude}\")\" >/dev/null 2>&1 &)"
+            "command": "input=$(cat); sid=$(printf '%s' \"$input\" | jq -r '.session_id // empty' 2>/dev/null | cut -c1-6); name=\"$(basename \"${CLAUDE_PROJECT_DIR:-Claude}\")${sid:+#$sid}\"; (curl -s -m 1 -G http://localhost:4123/notify --data-urlencode state=done --data-urlencode \"ai=$name\" >/dev/null 2>&1 &)"
           }
         ]
       }
@@ -18,7 +29,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "(curl -s -m 1 -G http://localhost:4123/notify --data-urlencode state=waiting --data-urlencode \"ai=$(basename \"${CLAUDE_PROJECT_DIR:-Claude}\")\" >/dev/null 2>&1 &)"
+            "command": "input=$(cat); sid=$(printf '%s' \"$input\" | jq -r '.session_id // empty' 2>/dev/null | cut -c1-6); name=\"$(basename \"${CLAUDE_PROJECT_DIR:-Claude}\")${sid:+#$sid}\"; (curl -s -m 1 -G http://localhost:4123/notify --data-urlencode state=waiting --data-urlencode \"ai=$name\" >/dev/null 2>&1 &)"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "input=$(cat); sid=$(printf '%s' \"$input\" | jq -r '.session_id // empty' 2>/dev/null | cut -c1-6); name=\"$(basename \"${CLAUDE_PROJECT_DIR:-Claude}\")${sid:+#$sid}\"; (curl -s -m 1 -G http://localhost:4123/notify --data-urlencode state=ended --data-urlencode \"ai=$name\" >/dev/null 2>&1 &)"
           }
         ]
       }
