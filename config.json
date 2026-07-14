@@ -1,0 +1,10 @@
+{
+  "voice": {
+    "speaker": 14,
+    "volume": 1.0,
+    "speed": 1.0
+  },
+  "chime": {
+    "volume": 1.0
+  }
+}

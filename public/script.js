@@ -24,20 +24,24 @@ let enabled = false;
 // 状態ごとの音ON/OFF設定(falseで消音。未設定はON)
 const soundPrefs = JSON.parse(localStorage.getItem('soundPrefs') || '{}');
 
+// チャイム音量の倍率(サーバのconfig.jsonから取得。取れなければ1.0)
+let chimeVolume = 1;
+fetch('/config').then((r) => r.json()).then((c) => { chimeVolume = c.chime?.volume ?? 1; }).catch(() => {});
+
 function enableAudio() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   if (audioCtx.state === 'suspended') audioCtx.resume();
   enabled = true;
 }
 
-// 1音を鳴らす (周波数・開始時刻・長さ・波形・音量)
+// 1音を鳴らす (周波数・開始時刻・長さ・波形・音量。音量には config.json の倍率を掛ける)
 function tone(freq, start, dur, type = 'sine', vol = 0.2) {
   const osc = audioCtx.createOscillator();
   const gain = audioCtx.createGain();
   osc.type = type;
   osc.frequency.value = freq;
   gain.gain.setValueAtTime(0.0001, start);
-  gain.gain.exponentialRampToValueAtTime(vol, start + 0.01);
+  gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, vol * chimeVolume), start + 0.01);
   gain.gain.exponentialRampToValueAtTime(0.0001, start + dur);
   osc.connect(gain).connect(audioCtx.destination);
   osc.start(start);
@@ -59,6 +63,7 @@ const SOUND = {
 // force=true は試聴ボタン用(OFF設定でも鳴らす)
 function playState(state, force = false) {
   if (!enabled || !audioCtx) return;
+  if (!force && chimeVolume <= 0) return;                // config.json で消音(試聴は鳴らす)
   if (!force && soundPrefs[state] === false) return;
   (SOUND[state] || SOUND.done)();
 }

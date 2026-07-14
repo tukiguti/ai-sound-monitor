@@ -9,6 +9,7 @@
 //   ⑥ VOICEVOX で「〇〇が完了です」と読み上げる (ENGINE未起動なら自動スキップ)
 //   ⑦ names.json でAI名を表示名に変換し、同名が複数あるときは番号(1,2,3…)で区別する
 //   ⑧ Discord Webhook へ完了・承認待ち・エラーを投稿する (未設定なら何もしない)
+//   ⑨ config.json で話者・音量・速さ・チャイム音量を設定できる
 //
 // 状態の特別扱い:
 //   state=ended … そのAI(セッション)を盤面から取り除く (SessionEnd hook用)
@@ -31,7 +32,25 @@ const NAMES_FILE = path.join(__dirname, 'names.json');
 const DISCORD_FILE = path.join(__dirname, 'discord.json');
 
 const VOICEVOX_URL = process.env.VOICEVOX_URL || 'http://localhost:50021';
-const VOICEVOX_SPEAKER = process.env.VOICEVOX_SPEAKER || '14';           // 冥鳴ひまり(ノーマル)
+
+// ===== 音の設定 (config.json) =====
+// config.json の数値を書き換えてサーバ再起動で反映(チャイム音量はブラウザ再読み込みも必要)
+//   voice.speaker: 話者ID  2=四国めたん 3=ずんだもん 8=春日部つむぎ 13=青山龍星 14=冥鳴ひまり
+//     全一覧: curl -s http://localhost:50021/speakers | jq -r '.[] | .name as $n | .styles[] | "\(.id)=\($n)（\(.name)）"'
+//   voice.volume / voice.speed: 読み上げの音量・速さ(1.0=標準)
+//   chime.volume: ブラウザのチャイム音量の倍率(1.0=標準、0で消音)
+const CONFIG_FILE = path.join(__dirname, 'config.json');
+const config = {
+  voice: { speaker: 14, volume: 1.0, speed: 1.0 },
+  chime: { volume: 1.0 },
+};
+try {
+  const user = JSON.parse(readFileSync(CONFIG_FILE, 'utf8'));
+  Object.assign(config.voice, user.voice);
+  Object.assign(config.chime, user.chime);
+} catch { /* config.jsonが無い/壊れていれば既定値で動く */ }
+
+const VOICEVOX_SPEAKER = process.env.VOICEVOX_SPEAKER || String(config.voice.speaker);
 const SPEAK_STATES = { done: 'が完了です', waiting: 'が承認待ちです' };  // 読み上げる状態と語尾
 
 // Discordへ投げる状態と文面(working/ended は通知しない)
@@ -130,10 +149,13 @@ async function speakOnce(text) {
   );
   if (!queryRes.ok) throw new Error(`audio_query が ${queryRes.status}`);
 
+  const query = await queryRes.json();
+  query.volumeScale = config.voice.volume;                    // 音量・速さは config.json から
+  query.speedScale = config.voice.speed;
   const synthRes = await fetch(`${VOICEVOX_URL}/synthesis?speaker=${speaker}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(await queryRes.json()),              // audio_query の結果をそのまま渡す
+    body: JSON.stringify(query),
     signal: AbortSignal.timeout(30000),
   });
   if (!synthRes.ok) throw new Error(`synthesis が ${synthRes.status}`);
@@ -261,6 +283,13 @@ const server = http.createServer(async (req, res) => {
     handleEvent(event);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, event }));
+    return;
+  }
+
+  // --- 音の設定をブラウザへ渡す(チャイム音量) ---
+  if (url.pathname === '/config') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ chime: config.chime }));
     return;
   }
 

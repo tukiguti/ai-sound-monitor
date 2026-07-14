@@ -53,8 +53,20 @@ cp claude-hooks.example.json ~/GitHub/myproject/.claude/settings.json
 
 ### 3. VOICEVOX（任意・喋らせたい場合）
 
-[VOICEVOX](https://voicevox.hiroshiba.jp/) をインストールするだけ。話者は 冥鳴ひまり(id=14)。
-変更したい場合は環境変数 `VOICEVOX_SPEAKER`（話者id）/ `VOICEVOX_URL`（既定 `http://localhost:50021`）。
+[VOICEVOX](https://voicevox.hiroshiba.jp/) をインストールするだけ。話者は既定で 冥鳴ひまり。声や音量は `config.json` で変更できる(下記)。
+
+### 音の調整（config.json）
+
+`config.json` の数値を書き換えて**サーバ再起動**で反映（チャイム音量はブラウザ再読み込みも）:
+
+| キー | 意味 | 例 |
+|---|---|---|
+| `voice.speaker` | 読み上げの話者ID（2=四国めたん / 3=ずんだもん / 8=春日部つむぎ / 13=青山龍星 / 14=冥鳴ひまり） | `3` |
+| `voice.volume` | 読み上げの音量（1.0=標準） | `1.5` |
+| `voice.speed` | 読み上げの速さ（1.0=標準） | `1.2` |
+| `chime.volume` | チャイム音量の倍率（0で消音） | `0.5` |
+
+話者IDの全一覧: `curl -s http://localhost:50021/speakers | jq -r '.[] | .name as $n | .styles[] | "\(.id)=\($n)（\(.name)）"'`
 
 ### 4. Discord通知（任意・スマホでも気づきたい場合）
 
@@ -159,6 +171,7 @@ pkill -f vv-engine          # VOICEVOX ENGINE停止（使っていた場合）
 | `/notify` | イベント受信（GET / POST）。ターミナルや hook から叩く |
 | `/events` | ブラウザ向け SSE。接続時に現在の盤面（スナップショット）を送る |
 | `/clear` | 監視中AIの一覧をリセット（受信ログは消えない） |
+| `/config` | ブラウザ向けの音設定（チャイム音量）を返す |
 
 ### 機能一覧
 
