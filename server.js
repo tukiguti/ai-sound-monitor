@@ -7,6 +7,7 @@
 //   ④ 各AIの「現在状態」を保持し、ブラウザ接続時にスナップショットを送る
 //   ⑤ 状態を .state.json に保存し、サーバ再起動後も盤面を復元する
 //   ⑥ VOICEVOX で「〇〇が完了です」と読み上げる (ENGINE未起動なら自動スキップ)
+//   ⑦ names.json でAI名を表示名に変換し、同名が複数あるときは番号(1,2,3…)で区別する
 //
 // 状態の特別扱い:
 //   state=ended … そのAI(セッション)を盤面から取り除く (SessionEnd hook用)
@@ -25,13 +26,14 @@ const PORT = process.env.PORT || 4123;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const STATE_FILE = path.join(__dirname, '.state.json');
+const NAMES_FILE = path.join(__dirname, 'names.json');
 
 const VOICEVOX_URL = process.env.VOICEVOX_URL || 'http://localhost:50021';
 const VOICEVOX_SPEAKER = process.env.VOICEVOX_SPEAKER || '14';           // 冥鳴ひまり(ノーマル)
 const SPEAK_STATES = { done: 'が完了です', waiting: 'が承認待ちです' };  // 読み上げる状態と語尾
 
 const clients = new Set();        // 接続中のブラウザ(SSEクライアント)
-const agents = new Map();         // AI名 -> 最新状態 { ai, state, message, time }
+const agents = new Map();         // AI名 -> 最新状態 { ai, state, message, time, label, num }
 
 // 前回終了時の盤面を復元する
 try {
@@ -41,6 +43,23 @@ try {
 
 function saveState() {
   writeFile(STATE_FILE, JSON.stringify([...agents.values()], null, 2), () => {});
+}
+
+// --- ⑦ 名前マップ: ディレクトリ名 -> 表示名 (表示と読み上げの両方で使う) ---
+
+let names = {};
+try { names = JSON.parse(readFileSync(NAMES_FILE, 'utf8')); } catch { /* マップが無ければ素の名前を使う */ }
+
+const baseOf = (ai) => ai.split('#')[0];                  // セッションID部分を落とす
+const labelOf = (ai) => names[baseOf(ai)] || baseOf(ai);  // マップに無ければそのまま
+
+// 同じベース名の稼働中セッションに 1,2,3… を振る(空き番号の最小を使う)
+function assignNum(ai) {
+  const base = baseOf(ai);
+  const used = new Set([...agents.values()].filter((a) => baseOf(a.ai) === base).map((a) => a.num));
+  let n = 1;
+  while (used.has(n)) n++;
+  return n;
 }
 
 // --- ⑥ VOICEVOX 読み上げ (サーバ側で再生するのでブラウザを開いていなくても喋る) ---
@@ -141,13 +160,21 @@ function handleEvent(event) {
     console.log(`[notify] ${event.ai} → セッション終了(削除)  監視中:${agents.size}  ブラウザ:${clients.size}`);
     return;
   }
+  const prev = agents.get(event.ai);
+  event.num = prev ? prev.num : assignNum(event.ai);   // セッション存続中は番号を変えない
+  event.label = labelOf(event.ai);
+
   agents.set(event.ai, event);                 // 現在状態を更新(同名は上書き)
   saveState();
   broadcast({ type: 'event', ...event });      // ブラウザへ通知(音+盤面更新)
 
   // 完了・承認待ちだけ読み上げる(working/error はチャイム音のみ)
   const suffix = SPEAK_STATES[event.state];
-  if (suffix) speak(event.ai.split('#')[0] + suffix);   // セッションID部分は読み上げない
+  if (suffix) {
+    // 同じ名前が複数稼働しているときだけ番号で区別する(1つだけなら番号なし)
+    const live = [...agents.values()].filter((a) => baseOf(a.ai) === baseOf(event.ai)).length;
+    speak(live > 1 ? `${event.label}の${event.num}番${suffix}` : `${event.label}${suffix}`);
+  }
 
   console.log(`[notify] ${event.ai} → ${event.state} ${event.message ? '(' + event.message + ')' : ''}  監視中:${agents.size}  ブラウザ:${clients.size}`);
 }

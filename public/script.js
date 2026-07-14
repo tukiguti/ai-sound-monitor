@@ -83,7 +83,14 @@ const boardEl = document.getElementById('board');
 const emptyBoard = document.getElementById('emptyBoard');
 const countEl = document.getElementById('count');
 
-let agents = new Map();   // AI名 -> { ai, state, message, time }
+let agents = new Map();   // AI名 -> { ai, state, message, time, label, num }
+
+// 表示名: names.jsonの変換名。同じ名前が複数稼働中のときだけ「2番」を付ける
+function displayNameOf(a) {
+  const label = a.label || a.ai.split('#')[0];   // 旧データ(labelなし)にも耐える
+  const multi = [...agents.values()].filter((x) => (x.label || x.ai.split('#')[0]) === label).length > 1;
+  return multi && a.num ? `${label} ${a.num}番` : label;
+}
 
 function renderBoard() {
   const list = [...agents.values()].sort((a, b) => {
@@ -100,7 +107,7 @@ function renderBoard() {
     return `
       <li class="agent${attention}" style="border-left-color:${s.color}">
         <div class="agent-main">
-          <span class="agent-name">${escapeHtml(a.ai)}</span>
+          <span class="agent-name" title="${escapeHtml(a.ai)}">${escapeHtml(displayNameOf(a))}</span>
           <span class="agent-state" style="color:${s.color}">${s.emoji} ${s.label}</span>
         </div>
         <div class="agent-sub">
@@ -131,7 +138,7 @@ function addLog(event) {
   li.style.borderLeftColor = s.color;
   li.innerHTML =
     `<span class="log-time">${time}</span>` +
-    `<span class="log-ai">${escapeHtml(event.ai || 'AI')}</span>` +
+    `<span class="log-ai" title="${escapeHtml(event.ai || 'AI')}">${escapeHtml(displayNameOf(event))}</span>` +
     `<span class="log-state" style="color:${s.color}">${s.emoji} ${s.label}</span>` +
     `<span class="log-msg">${escapeHtml(event.message || '')}</span>`;
   logEl.prepend(li);
