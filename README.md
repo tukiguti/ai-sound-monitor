@@ -26,19 +26,28 @@ git clone https://github.com/tukiguti/ai-sound-monitor.git
 cd ai-sound-monitor
 ```
 
-### 2. 監視したいプロジェクトに hook を入れる
+### 2. Claude Code に hook を入れる
 
-このリポジトリ自体には hook（`.claude/settings.json`）が同梱済みなので、**ai-sound-monitor で開いた Claude Code はそのまま監視される**。
+hook のテンプレートが `claude-hooks.example.json` にある。入れ方は2通り:
 
-他のプロジェクトも監視したい場合は、hook 設定をコピーする:
+**(a) 全プロジェクトを監視する（推奨・複数AI同時運用の本来の姿）**
+
+`~/.claude/settings.json` の `hooks` に、テンプレートの4イベント（UserPromptSubmit / Stop / Notification / SessionEnd）をマージする。
+既に他の hook がある場合は、同じイベントの `hooks` 配列に**追記**すれば共存できる。
+
+**(b) 特定のプロジェクトだけ監視する**
 
 ```bash
 # 例: ~/GitHub/myproject を監視対象にする
 mkdir -p ~/GitHub/myproject/.claude
-cp .claude/settings.json ~/GitHub/myproject/.claude/settings.json
+cp claude-hooks.example.json ~/GitHub/myproject/.claude/settings.json
 ```
 
-- コピー先に既に `.claude/settings.json` がある場合は、`hooks` の中身を手動でマージする
+コピー先に既に `.claude/settings.json` がある場合は `hooks` の中身を手動でマージする。
+
+**共通の注意**
+
+- (a)と(b)を同じプロジェクトに重ねると**二重通知**になる（グローバルとプロジェクトの hook は両方実行されるため）。どちらか片方にする
 - hook は非ブロッキング（1秒タイムアウト・失敗無視）なので、**サーバを起動していない日でも Claude Code の動作に影響しない**
 - 設定を入れた後に**新しく開いた**セッションから有効になる
 
