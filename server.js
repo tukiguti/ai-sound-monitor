@@ -8,6 +8,7 @@
 //   ⑤ 状態を .state.json に保存し、サーバ再起動後も盤面を復元する
 //   ⑥ VOICEVOX で「〇〇が完了です」と読み上げる (ENGINE未起動なら自動スキップ)
 //   ⑦ names.json でAI名を表示名に変換し、同名が複数あるときは番号(1,2,3…)で区別する
+//   ⑧ Discord Webhook へ完了・承認待ち・エラーを投稿する (未設定なら何もしない)
 //
 // 状態の特別扱い:
 //   state=ended … そのAI(セッション)を盤面から取り除く (SessionEnd hook用)
@@ -27,10 +28,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const STATE_FILE = path.join(__dirname, '.state.json');
 const NAMES_FILE = path.join(__dirname, 'names.json');
+const DISCORD_FILE = path.join(__dirname, 'discord.json');
 
 const VOICEVOX_URL = process.env.VOICEVOX_URL || 'http://localhost:50021';
 const VOICEVOX_SPEAKER = process.env.VOICEVOX_SPEAKER || '14';           // 冥鳴ひまり(ノーマル)
 const SPEAK_STATES = { done: 'が完了です', waiting: 'が承認待ちです' };  // 読み上げる状態と語尾
+
+// Discordへ投げる状態と文面(working/ended は通知しない)
+const STATE_TEXT = { done: 'が完了です', waiting: 'が承認待ちです', error: 'がエラーです' };
+const STATE_EMOJI = { done: '✅', waiting: '⏳', error: '⛔' };
 
 const clients = new Set();        // 接続中のブラウザ(SSEクライアント)
 const agents = new Map();         // AI名 -> 最新状態 { ai, state, message, time, label, num }
@@ -67,6 +73,26 @@ function assignNum(ai) {
   let n = 1;
   while (used.has(n)) n++;
   return n;
+}
+
+// --- ⑧ Discord通知: 環境変数が最優先、無ければ discord.json (どちらも無ければ通知しない) ---
+
+let discordWebhook = process.env.DISCORD_WEBHOOK_URL || '';
+if (!discordWebhook) {
+  try { discordWebhook = JSON.parse(readFileSync(DISCORD_FILE, 'utf8')).webhookUrl || ''; } catch { /* 未設定なら通知しない */ }
+}
+
+// Discordへ投げっぱなしで通知する(未設定なら何もしない / 失敗してもサーバは止めない)
+function notifyDiscord(text) {
+  if (!discordWebhook) return;
+  fetch(discordWebhook, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content: text }),
+    signal: AbortSignal.timeout(5000),      // Discordが無反応でも5秒で諦める
+  }).then((res) => {
+    if (!res.ok) console.log(`[discord] 通知失敗: HTTP ${res.status}`);
+  }).catch((e) => console.log('[discord] 通知失敗: ' + e.message));
 }
 
 // --- ⑥ VOICEVOX 読み上げ (サーバ側で再生するのでブラウザを開いていなくても喋る) ---
@@ -176,12 +202,17 @@ function handleEvent(event) {
   saveState();
   broadcast({ type: 'event', ...event });      // ブラウザへ通知(音+盤面更新)
 
+  // 同じ名前が複数稼働しているときだけ番号で区別する(1つだけなら番号なし)
+  const live = [...agents.values()].filter((a) => baseOf(a.ai) === baseOf(event.ai)).length;
+  const who = live > 1 ? `${event.label}の${event.num}番` : event.label;
+
   // 完了・承認待ちだけ読み上げる(working/error はチャイム音のみ)
   const suffix = SPEAK_STATES[event.state];
-  if (suffix) {
-    // 同じ名前が複数稼働しているときだけ番号で区別する(1つだけなら番号なし)
-    const live = [...agents.values()].filter((a) => baseOf(a.ai) === baseOf(event.ai)).length;
-    speak(live > 1 ? `${event.label}の${event.num}番${suffix}` : `${event.label}${suffix}`);
+  if (suffix) speak(who + suffix);
+
+  // Discordへは完了・承認待ち・エラーを投稿する(working は対象外)
+  if (STATE_TEXT[event.state]) {
+    notifyDiscord(`${STATE_EMOJI[event.state]} **${who}**${STATE_TEXT[event.state]}${event.message ? ' — ' + event.message : ''}`);
   }
 
   console.log(`[notify] ${event.ai} → ${event.state} ${event.message ? '(' + event.message + ')' : ''}  監視中:${agents.size}  ブラウザ:${clients.size}`);
@@ -263,5 +294,8 @@ server.listen(PORT, () => {
   console.log(' AI Sound Monitor 起動');
   console.log(`  画面   : http://localhost:${PORT}`);
   console.log(`  鳴らす : curl "http://localhost:${PORT}/notify?state=done&ai=test"`);
+  console.log(discordWebhook
+    ? '  Discord : 通知有効'
+    : '  Discord : 未設定(discord.json か DISCORD_WEBHOOK_URL で有効化)');
   console.log('==============================================');
 });

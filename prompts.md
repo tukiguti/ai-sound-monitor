@@ -98,7 +98,24 @@
 
 ---
 
-## P2（発展・予定）: Discord
+## P2（2026-07-14 実施）: Discord通知
 
-- Discord Incoming Webhook にイベントを投稿（Webhook URLはコミットしない・環境変数か gitignore 済み設定で扱う）
-- （依頼・出力・修正をここに追記）
+### AIへの依頼（要旨）
+- 完了/承認待ち/エラーを Discord Incoming Webhook に投稿。working/ended は投稿しない
+- Webhook URL は環境変数 `DISCORD_WEBHOOK_URL` 優先、無ければ gitignore 済みの `discord.json` から読む（コミットに秘密を入れない）
+- 5秒タイムアウト・投げっぱなし・失敗してもサーバは落とさない（VOICEVOXと同じ流儀）
+
+### AIの出力
+- `notifyDiscord()`＋`STATE_TEXT`/`STATE_EMOJI`。読み上げと同じ「番号は複数稼働時のみ」ルールで文面を生成
+- `.gitignore` に discord.json 追記、README に設定手順、起動ログに 有効/未設定 の表示
+
+### 確認・検証した点
+- モックWebhookをローカルに立てて実POST内容を確認:
+  - 「✅ **サウンドモニター**が完了です」（単独時・番号なし）
+  - 「✅ **サウンドモニターの2番**が完了です」（2枚稼働時・番号あり）
+  - 「⛔ **test**がエラーです — ビルド失敗」（message連結）
+  - working は投稿されない／未設定起動では「Discord : 未設定」表示で正常動作
+- 実Discordチャンネルへのテストは Webhook URL 設置後に実施（残タスク）
+
+### workingを投稿しない理由
+ブラウザ盤面は「上書きされる現在の状態」だが、Discordは「流れ去る履歴」。対話のたびに投稿すると通知として機能しなくなる。
