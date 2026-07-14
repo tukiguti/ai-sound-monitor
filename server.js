@@ -6,6 +6,7 @@
 //   ③ /events  … ブラウザへ Server-Sent Events(SSE) でイベントを中継する
 //   ④ 各AIの「現在状態」を保持し、ブラウザ接続時にスナップショットを送る
 //   ⑤ 状態を .state.json に保存し、サーバ再起動後も盤面を復元する
+//   ⑥ VOICEVOX で「〇〇が完了です」と読み上げる (ENGINE未起動なら自動スキップ)
 //
 // 状態の特別扱い:
 //   state=ended … そのAI(セッション)を盤面から取り除く (SessionEnd hook用)
@@ -13,8 +14,10 @@
 // 起動: node server.js   (または npm start)
 
 import http from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile as writeFileAsync, unlink } from 'node:fs/promises';
 import { readFileSync, writeFile } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -22,6 +25,10 @@ const PORT = process.env.PORT || 4123;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const STATE_FILE = path.join(__dirname, '.state.json');
+
+const VOICEVOX_URL = process.env.VOICEVOX_URL || 'http://localhost:50021';
+const VOICEVOX_SPEAKER = process.env.VOICEVOX_SPEAKER || '14';           // 冥鳴ひまり(ノーマル)
+const SPEAK_STATES = { done: 'が完了です', waiting: 'が承認待ちです' };  // 読み上げる状態と語尾
 
 const clients = new Set();        // 接続中のブラウザ(SSEクライアント)
 const agents = new Map();         // AI名 -> 最新状態 { ai, state, message, time }
@@ -34,6 +41,67 @@ try {
 
 function saveState() {
   writeFile(STATE_FILE, JSON.stringify([...agents.values()], null, 2), () => {});
+}
+
+// --- ⑥ VOICEVOX 読み上げ (サーバ側で再生するのでブラウザを開いていなくても喋る) ---
+
+const speakQueue = [];   // 読み上げ待ちのテキスト
+let speaking = false;    // ワーカー稼働中か(2つ同時に喋って重ならないようにする)
+let speakSeq = 0;        // 一時ファイル名を一意にする連番
+
+// 読み上げを依頼する(投げっぱなし: /notify の応答は待たせない)
+function speak(text) {
+  speakQueue.push(text);
+  if (!speaking) runSpeakQueue();
+}
+
+// キューを直列に処理する。どこで失敗してもサーバ本体は止めない
+async function runSpeakQueue() {
+  speaking = true;
+  while (speakQueue.length) {
+    const text = speakQueue.shift();
+    try {
+      await speakOnce(text);
+    } catch (e) {
+      console.log('[voice] 読み上げ失敗(ENGINEは起動していますか?): ' + e.message);
+    }
+  }
+  speaking = false;
+}
+
+// ①audio_query → ②synthesis → ③一時WAVに書く → ④afplayで再生 → ⑤一時ファイル削除
+async function speakOnce(text) {
+  const speaker = encodeURIComponent(VOICEVOX_SPEAKER);
+  const queryRes = await fetch(
+    `${VOICEVOX_URL}/audio_query?speaker=${speaker}&text=${encodeURIComponent(text)}`,
+    { method: 'POST', signal: AbortSignal.timeout(10000) },   // ENGINEが無反応でもキューを詰まらせない
+  );
+  if (!queryRes.ok) throw new Error(`audio_query が ${queryRes.status}`);
+
+  const synthRes = await fetch(`${VOICEVOX_URL}/synthesis?speaker=${speaker}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(await queryRes.json()),              // audio_query の結果をそのまま渡す
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!synthRes.ok) throw new Error(`synthesis が ${synthRes.status}`);
+
+  const file = path.join(tmpdir(), `ai-sound-monitor-${process.pid}-${speakSeq++}.wav`);
+  await writeFileAsync(file, Buffer.from(await synthRes.arrayBuffer()));
+  try {
+    await playFile(file);
+  } finally {
+    await unlink(file).catch(() => {});                       // 再生の成否にかかわらず片付ける
+  }
+}
+
+// afplay(macOS標準)で再生し、鳴り終わるまで待つ
+function playFile(file) {
+  return new Promise((resolve, reject) => {
+    const player = spawn('afplay', [file]);
+    player.on('error', reject);                               // afplayが無い等
+    player.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`afplay 終了コード ${code}`))));
+  });
 }
 
 const MIME = {
@@ -76,6 +144,11 @@ function handleEvent(event) {
   agents.set(event.ai, event);                 // 現在状態を更新(同名は上書き)
   saveState();
   broadcast({ type: 'event', ...event });      // ブラウザへ通知(音+盤面更新)
+
+  // 完了・承認待ちだけ読み上げる(working/error はチャイム音のみ)
+  const suffix = SPEAK_STATES[event.state];
+  if (suffix) speak(event.ai.split('#')[0] + suffix);   // セッションID部分は読み上げない
+
   console.log(`[notify] ${event.ai} → ${event.state} ${event.message ? '(' + event.message + ')' : ''}  監視中:${agents.size}  ブラウザ:${clients.size}`);
 }
 

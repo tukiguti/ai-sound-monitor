@@ -80,8 +80,25 @@
 
 ---
 
-## P2（発展・予定）: VOICEVOX / Discord
+### 実施済み（2026-07-14）: VOICEVOX読み上げ（P2前半）
 
-- VOICEVOX ENGINE（localhost:50021）を server 経由で叩き、読み上げ音声を再生
-- Discord Incoming Webhook にイベントを投稿
+**設計判断**
+- 再生はサーバ側（macOS標準 afplay）→ ブラウザを開いていなくても喋る（実運用レビュー#5のローカル解消）
+- 話者 = 冥鳴ひまり(id=14)。環境変数 `VOICEVOX_SPEAKER` / `VOICEVOX_URL` で変更可
+- 読み上げは 完了「〇〇が完了です」と 承認待ち「〇〇が承認待ちです」のみ。working/error はチャイム音のみ
+- セッションID（#以降）は読み上げない
+- 直列キューで声の重なりを防止。audio_query/synthesis にタイムアウト(10s/30s)を設定しキュー詰まりを防ぐ
+- ENGINE未起動なら自動スキップ（HTTP応答は正常のまま・ログ1行・サーバは落ちない）
+- ENGINEはヘッドレス起動できる: `/Applications/VOICEVOX.app/Contents/Resources/vv-engine/run`
+
+**動作確認**
+- 完了・承認待ちの読み上げを実機確認（「テストが完了です」等）
+- 連続2イベント → 直列で順に再生、一時WAVは自動削除（残骸なし）
+- ENGINE停止相当（死んだURL）でも graceful skip を確認
+
+---
+
+## P2（発展・予定）: Discord
+
+- Discord Incoming Webhook にイベントを投稿（Webhook URLはコミットしない・環境変数か gitignore 済み設定で扱う）
 - （依頼・出力・修正をここに追記）

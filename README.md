@@ -41,6 +41,20 @@ curl "http://localhost:4123/notify?state=done&ai=リサーチ版"
 同じ `ai` 名で再送すると、その AI の状態が**上書き**される（重複して増えない）。
 古くなった AI を消したいときは、画面の「一覧をクリア」または `curl http://localhost:4123/clear`。
 
+### VOICEVOX読み上げ（任意）
+
+VOICEVOX ENGINE が起動していると、完了・承認待ちを音声で読み上げる（例:「ai-sound-monitorが完了です」）。
+ENGINEが起動していなければ読み上げは自動的にスキップされる（チャイム音は鳴る）。
+
+```bash
+# ENGINEをヘッドレス起動（VOICEVOXアプリを開いてもよい）
+/Applications/VOICEVOX.app/Contents/Resources/vv-engine/run
+```
+
+- 話者は 冥鳴ひまり(id=14)。環境変数 `VOICEVOX_SPEAKER` で変更可
+- ENGINE の場所は `VOICEVOX_URL`（既定 `http://localhost:50021`）で変更可
+- 読み上げはサーバ側(afplay)で行うため、**ブラウザを開いていなくても喋る**
+
 ### エンドポイント
 
 | パス | 用途 |
@@ -62,7 +76,7 @@ curl "http://localhost:4123/notify?state=done&ai=リサーチ版"
 - [x] **実行中の可視化** — 指示を出した瞬間に🔄実行中になる（UserPromptSubmit hook）
 - [x] **状態ごとの音ON/OFF** — 通知疲れ対策。凡例のチェックで消音でき、ブラウザ(localStorage)に保存
 - [x] **盤面の永続化** — `.state.json` に保存し、サーバ再起動後も復元
-- [ ] VOICEVOX で「〇〇版が承認待ちです」と読み上げ（P2）
+- [x] VOICEVOX 読み上げ — 完了/承認待ちをサーバ側(afplay)で読み上げ。ENGINE未起動なら自動スキップ
 - [ ] Discord 通知（P2）
 
 ## 動作確認
