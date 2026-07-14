@@ -10,7 +10,7 @@
   <header class="app-header">
     <div class="title-block">
       <h1>🔊 AI Sound Monitor</h1>
-      <p class="subtitle">複数AIの同時運用を「音」で伝える — 最小構成 (P0)</p>
+      <p class="subtitle">複数AIの同時運用を「音」で伝える</p>
     </div>
     <div class="header-actions">
       <span id="conn" class="conn conn--off">● 未接続</span>
@@ -19,20 +19,28 @@
   </header>
 
   <main>
-    <section class="panel hint-panel">
-      <p>
-        ターミナルからイベントを送ると、状態ごとの音が鳴ります。
-        まず右上の <strong>「音を有効にする」</strong> を一度押してください（ブラウザの音を解禁するために必要です）。
+    <!-- ダッシュボード: 各AIの現在状態 -->
+    <section class="panel">
+      <div class="panel-head">
+        <h2>監視中のAI <span id="count" class="count">0</span></h2>
+        <button id="clearBtn" class="ghost-btn" type="button">一覧をクリア</button>
+      </div>
+      <p class="hint">要対応（承認待ち・エラー）が上に来ます。イベントが届いたAIは自動で追加されます。</p>
+      <p id="emptyBoard" class="empty">
+        まだAIがいません。ターミナルからイベントを送るか、そのディレクトリで Claude Code を起動してください。
       </p>
-      <pre class="cmd">curl "http://localhost:4123/notify?state=done&amp;ai=test"</pre>
+      <ul id="board" class="board"></ul>
     </section>
 
+    <!-- 状態と音の凡例 -->
     <section class="panel">
       <h2>状態と音</h2>
       <p class="hint">「試聴」で各状態の音を確認できます。画面を見ずに音だけで区別できるか試してみてください。</p>
       <ul id="legend" class="legend"></ul>
+      <pre class="cmd">curl -G "http://localhost:4123/notify" --data-urlencode state=done --data-urlencode ai=テスト版</pre>
     </section>
 
+    <!-- 受信ログ -->
     <section class="panel">
       <h2>受信ログ</h2>
       <p id="emptyLog" class="empty">まだイベントを受信していません。</p>
@@ -41,7 +49,7 @@
   </main>
 
   <footer class="app-footer">
-    <p>情報論 2026 第11回 アプリ開発PBL ／ P0: 1ターミナル → web → 音</p>
+    <p>情報論 2026 アプリ開発PBL ／ ターミナル → サーバ → ブラウザ → 音</p>
   </footer>
 
   <script src="script.js"></script>

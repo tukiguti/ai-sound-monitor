@@ -1,9 +1,11 @@
 // AI Sound Monitor - ローカルサーバ (依存ゼロ / Node標準httpのみ)
 //
-// 役割は3つ:
+// 役割:
 //   ① Webページ(public/)を配信する
 //   ② /notify  … ターミナル(curl や Claude Code hook)からイベントを受け取る
 //   ③ /events  … ブラウザへ Server-Sent Events(SSE) でイベントを中継する
+//   ④ 各AIの「現在状態」を保持し、ブラウザ接続時にスナップショットを送る
+//      (ブラウザを後から開いても、その時点の盤面が見えるようにするため)
 //
 // 起動: node server.js   (または npm start)
 
@@ -16,8 +18,8 @@ const PORT = process.env.PORT || 4123;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
-// 接続中のブラウザ(SSEクライアント)を保持する
-const clients = new Set();
+const clients = new Set();        // 接続中のブラウザ(SSEクライアント)
+const agents = new Map();         // AI名 -> 最新状態 { ai, state, message, time }
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -25,18 +27,20 @@ const MIME = {
   '.js': 'text/javascript; charset=utf-8',
 };
 
-// 受け取ったイベントを、繋がっている全ブラウザへ流す
-function broadcast(event) {
-  const payload = `data: ${JSON.stringify(event)}\n\n`;
-  for (const res of clients) res.write(payload);
-  console.log(`[notify] ${event.ai} → ${event.state} ${event.message ? '(' + event.message + ')' : ''}  受信中ブラウザ:${clients.size}`);
+function send(res, payload) {
+  res.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+// 全ブラウザへ流す
+function broadcast(payload) {
+  for (const res of clients) send(res, payload);
 }
 
 // クエリ or JSONボディからイベントを組み立てる
 function buildEvent(params, body) {
   let data = {};
   if (body) {
-    try { data = JSON.parse(body); } catch { /* JSONでなければ無視してクエリを使う */ }
+    try { data = JSON.parse(body); } catch { /* JSONでなければクエリを使う */ }
   }
   return {
     ai: data.ai || params.get('ai') || 'AI',
@@ -44,6 +48,12 @@ function buildEvent(params, body) {
     message: data.message || params.get('message') || '',
     time: new Date().toISOString(),
   };
+}
+
+function handleEvent(event) {
+  agents.set(event.ai, event);                 // 現在状態を更新
+  broadcast({ type: 'event', ...event });      // ブラウザへ通知(音+盤面更新)
+  console.log(`[notify] ${event.ai} → ${event.state} ${event.message ? '(' + event.message + ')' : ''}  監視中:${agents.size}  ブラウザ:${clients.size}`);
 }
 
 const server = http.createServer(async (req, res) => {
@@ -57,27 +67,28 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // --- ③ SSE: ブラウザがここに繋いでイベントを待つ ---
+  // --- ③④ SSE: 接続直後にスナップショット、以降はイベントを流す ---
   if (url.pathname === '/events') {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       Connection: 'keep-alive',
     });
-    res.write('retry: 3000\n\n');       // 切れたら3秒後に自動再接続
+    res.write('retry: 3000\n\n');                                   // 切れたら3秒後に自動再接続
+    send(res, { type: 'snapshot', agents: [...agents.values()] });  // 今の盤面を渡す
     clients.add(res);
     req.on('close', () => clients.delete(res));
     return;
   }
 
-  // --- ② イベント受信: curl / hook がここを叩く ---
+  // --- ② イベント受信: curl / Claude Code hook がここを叩く ---
   if (url.pathname === '/notify') {
     if (req.method === 'POST') {
       let body = '';
       req.on('data', (c) => (body += c));
       req.on('end', () => {
         const event = buildEvent(url.searchParams, body);
-        broadcast(event);
+        handleEvent(event);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, event }));
       });
@@ -85,9 +96,18 @@ const server = http.createServer(async (req, res) => {
     }
     // GETでも鳴らせる(hookやブラウザから手軽に叩けるように)
     const event = buildEvent(url.searchParams, '');
-    broadcast(event);
+    handleEvent(event);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, event }));
+    return;
+  }
+
+  // --- 一覧をリセット(古くなったAIを消す) ---
+  if (url.pathname === '/clear') {
+    agents.clear();
+    broadcast({ type: 'snapshot', agents: [] });
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, cleared: true }));
     return;
   }
 

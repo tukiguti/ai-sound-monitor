@@ -2,16 +2,18 @@
 //
 // 役割:
 //   ① サーバの /events (SSE) に繋ぐ
-//   ② イベントが来たら、状態ごとの音を鳴らす
-//   ③ 受信ログを画面に出す
+//   ② 接続時のスナップショットで「今の盤面」を描く
+//   ③ イベントが来たら 状態ごとの音を鳴らし、盤面とログを更新する
 
-// --- 状態の定義 (状態ごとに ラベル・絵文字・色) ---
+// --- 状態の定義 ---
+// priority: 小さいほど上に表示（要対応を先頭に持ってくる）
 const STATES = {
-  done:    { label: '完了',     emoji: '✅', color: '#22c55e' },
-  waiting: { label: '承認待ち', emoji: '⏳', color: '#f59e0b' },
-  error:   { label: 'エラー',   emoji: '⛔', color: '#ef4444' },
-  working: { label: '実行中',   emoji: '🔄', color: '#3b82f6' },
+  waiting: { label: '承認待ち', emoji: '⏳', color: '#f59e0b', priority: 0 },
+  error:   { label: 'エラー',   emoji: '⛔', color: '#ef4444', priority: 1 },
+  working: { label: '実行中',   emoji: '🔄', color: '#3b82f6', priority: 2 },
+  done:    { label: '完了',     emoji: '✅', color: '#22c55e', priority: 3 },
 };
+const stateOf = (key) => STATES[key] || STATES.done;
 
 // ===== 音の生成 (Web Audio API / 外部ファイル不要) =====
 let audioCtx = null;
@@ -54,6 +56,80 @@ function playState(state) {
   (SOUND[state] || SOUND.done)();
 }
 
+// ===== 共通ユーティリティ =====
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// 経過時間を「たった今 / 12秒前 / 3分前」の形にする
+function ago(iso) {
+  const sec = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+  if (sec < 3) return 'たった今';
+  if (sec < 60) return `${sec}秒前`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}分前`;
+  return `${Math.floor(min / 60)}時間前`;
+}
+
+// ===== ダッシュボード（各AIの現在状態） =====
+const boardEl = document.getElementById('board');
+const emptyBoard = document.getElementById('emptyBoard');
+const countEl = document.getElementById('count');
+
+let agents = new Map();   // AI名 -> { ai, state, message, time }
+
+function renderBoard() {
+  const list = [...agents.values()].sort((a, b) => {
+    const d = stateOf(a.state).priority - stateOf(b.state).priority;   // 要対応を上に
+    return d !== 0 ? d : new Date(b.time) - new Date(a.time);          // 同順位なら新しい方を上に
+  });
+
+  countEl.textContent = list.length;
+  emptyBoard.style.display = list.length ? 'none' : '';
+
+  boardEl.innerHTML = list.map((a) => {
+    const s = stateOf(a.state);
+    const attention = s.priority <= 1 ? ' agent--attention' : '';
+    return `
+      <li class="agent${attention}" style="border-left-color:${s.color}">
+        <div class="agent-main">
+          <span class="agent-name">${escapeHtml(a.ai)}</span>
+          <span class="agent-state" style="color:${s.color}">${s.emoji} ${s.label}</span>
+        </div>
+        <div class="agent-sub">
+          <span class="agent-msg">${escapeHtml(a.message || '')}</span>
+          <span class="agent-time" data-time="${a.time}">${ago(a.time)}</span>
+        </div>
+      </li>`;
+  }).join('');
+}
+
+// 経過時間を1秒ごとに更新する（再描画せず時刻表示だけ差し替える）
+setInterval(() => {
+  for (const el of boardEl.querySelectorAll('.agent-time')) {
+    el.textContent = ago(el.dataset.time);
+  }
+}, 1000);
+
+// ===== 受信ログ =====
+const logEl = document.getElementById('log');
+const emptyLog = document.getElementById('emptyLog');
+
+function addLog(event) {
+  emptyLog.style.display = 'none';
+  const s = stateOf(event.state);
+  const time = new Date(event.time || Date.now()).toLocaleTimeString('ja-JP');
+  const li = document.createElement('li');
+  li.className = 'log-item';
+  li.style.borderLeftColor = s.color;
+  li.innerHTML =
+    `<span class="log-time">${time}</span>` +
+    `<span class="log-ai">${escapeHtml(event.ai || 'AI')}</span>` +
+    `<span class="log-state" style="color:${s.color}">${s.emoji} ${s.label}</span>` +
+    `<span class="log-msg">${escapeHtml(event.message || '')}</span>`;
+  logEl.prepend(li);
+}
+
 // ===== 凡例 (試聴つき) =====
 const legendEl = document.getElementById('legend');
 for (const [key, s] of Object.entries(STATES)) {
@@ -71,49 +147,43 @@ for (const [key, s] of Object.entries(STATES)) {
   legendEl.appendChild(li);
 }
 
-// ===== 音の有効化ボタン =====
-const enableBtn = document.getElementById('enableBtn');
-enableBtn.addEventListener('click', () => {
+// ===== ボタン =====
+document.getElementById('enableBtn').addEventListener('click', (e) => {
   enableAudio();
-  enableBtn.textContent = '🔊 音: 有効';
-  enableBtn.classList.add('on');
+  e.target.textContent = '🔊 音: 有効';
+  e.target.classList.add('on');
 });
 
-// ===== 受信ログ =====
-const logEl = document.getElementById('log');
-const emptyLog = document.getElementById('emptyLog');
-
-function escapeHtml(str) {
-  return String(str).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
-
-function addLog(event) {
-  emptyLog.style.display = 'none';
-  const s = STATES[event.state] || STATES.done;
-  const time = new Date(event.time || Date.now()).toLocaleTimeString('ja-JP');
-  const li = document.createElement('li');
-  li.className = 'log-item';
-  li.style.borderLeftColor = s.color;
-  li.innerHTML =
-    `<span class="log-time">${time}</span>` +
-    `<span class="log-ai">${escapeHtml(event.ai || 'AI')}</span>` +
-    `<span class="log-state" style="color:${s.color}">${s.emoji} ${s.label}</span>` +
-    `<span class="log-msg">${escapeHtml(event.message || '')}</span>`;
-  logEl.prepend(li);
-}
+document.getElementById('clearBtn').addEventListener('click', () => {
+  fetch('/clear').catch(() => {});   // サーバ側でクリア → スナップショットが返ってくる
+});
 
 // ===== サーバへ SSE 接続 =====
 const connEl = document.getElementById('conn');
 
 function connect() {
   const es = new EventSource('/events');
+
   es.onopen = () => { connEl.textContent = '● 接続中'; connEl.className = 'conn conn--on'; };
   es.onerror = () => { connEl.textContent = '● 再接続中…'; connEl.className = 'conn conn--off'; };
+
   es.onmessage = (e) => {
-    let event;
-    try { event = JSON.parse(e.data); } catch { return; }
-    addLog(event);
-    playState(event.state);
+    let msg;
+    try { msg = JSON.parse(e.data); } catch { return; }
+
+    if (msg.type === 'snapshot') {
+      // 接続直後（またはクリア後）: 今の盤面を丸ごと反映。音は鳴らさない
+      agents = new Map(msg.agents.map((a) => [a.ai, a]));
+      renderBoard();
+      return;
+    }
+
+    if (msg.type === 'event') {
+      agents.set(msg.ai, msg);
+      renderBoard();
+      addLog(msg);
+      playState(msg.state);
+    }
   };
 }
 
