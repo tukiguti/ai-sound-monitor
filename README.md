@@ -191,3 +191,7 @@ pkill -f vv-engine          # VOICEVOX ENGINE停止（使っていた場合）
 
 - サーバ: Node.js 標準 `http` のみ（依存ゼロ / SSE で push / macOS前提=afplay）
 - 画面: HTML / CSS / JavaScript（Web Audio API）
+
+## ライセンス
+
+MIT License — 詳細は [LICENSE](LICENSE) を参照。
