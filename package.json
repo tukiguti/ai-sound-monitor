@@ -1,7 +1,7 @@
 {
   "name": "ai-sound-monitor",
   "version": "0.1.0",
-  "description": "複数AIの同時運用を音で伝える (情報論2026 第11回 アプリ開発PBL)",
+  "description": "複数AIの同時運用を音・声・Discord通知で伝えるツール",
   "type": "module",
   "scripts": {
     "start": "node server.js"

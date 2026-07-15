@@ -193,7 +193,7 @@ pkill -f vv-engine          # VOICEVOX ENGINE停止（使っていた場合）
 - サーバ: Node.js 標準 `http` のみ（依存ゼロ / SSE で push / macOS前提=afplay）
 - 画面: HTML / CSS / JavaScript（Web Audio API）
 
-### 検証（発表で示す予定）
+### 検証したいこと（今後）
 
 - 画面を見ずに、音だけで「どの状態か」を当てられるか（正答率）
 - 画面監視 vs 音通知で「状態変化に気づくまでの時間」がどれだけ短縮されるか
