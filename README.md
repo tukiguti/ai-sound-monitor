@@ -186,14 +186,8 @@ pkill -f vv-engine          # VOICEVOX ENGINE停止（使っていた場合）
 ### ドキュメント
 
 - [docs/設計.md](docs/設計.md) — 全体構成・状態モデル・API・設計判断の理由・既知の制約
-- [prompts.md](prompts.md) — AI活用記録（依頼・出力・検証して直した点）
 
 ### 技術
 
 - サーバ: Node.js 標準 `http` のみ（依存ゼロ / SSE で push / macOS前提=afplay）
 - 画面: HTML / CSS / JavaScript（Web Audio API）
-
-### 検証したいこと（今後）
-
-- 画面を見ずに、音だけで「どの状態か」を当てられるか（正答率）
-- 画面監視 vs 音通知で「状態変化に気づくまでの時間」がどれだけ短縮されるか
