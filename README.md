@@ -49,6 +49,7 @@ cp claude-hooks.example.json ~/GitHub/myproject/.claude/settings.json
 - (a)と(b)を同じプロジェクトに重ねると**二重通知**になる（グローバルとプロジェクトの hook は両方実行されるため）。どちらか片方にする
 - hook は非ブロッキング（1秒タイムアウト・失敗無視）なので、**サーバを起動していない日でも Claude Code の動作に影響しない**
 - 設定を入れた後に**新しく開いた**セッションから有効になる
+- テンプレートの通知先は `http://localhost:4123` に**ハードコード**されている。環境変数 `PORT` を既定の4123から変更する場合は、コピー先の設定ファイル内の `localhost:4123` も同じ番号に書き換えること（書き換えないとサーバは動くが通知が届かない）
 
 ### 3. VOICEVOX（任意・喋らせたい場合）
 
@@ -171,6 +172,17 @@ pkill -f vv-engine          # VOICEVOX ENGINE停止（使っていた場合）
 | `/events` | ブラウザ向け SSE。接続時に現在の盤面（スナップショット）を送る |
 | `/clear` | 監視中AIの一覧をリセット（受信ログは消えない） |
 | `/config` | ブラウザ向けの音設定（チャイム音量）を返す |
+
+### 環境変数
+
+サーバ起動時に読む。設定は任意で、未設定なら既定値または各設定ファイルの値が使われる:
+
+| 変数 | 既定値 | 意味 |
+|---|---|---|
+| `PORT` | `4123` | サーバの待受ポート |
+| `VOICEVOX_SPEAKER` | `config.json` の `voice.speaker`（既定14=冥鳴ひまり） | 読み上げの話者ID。**設定するとconfig.jsonより優先される** |
+| `VOICEVOX_URL` | `http://localhost:50021` | VOICEVOX ENGINEの場所 |
+| `DISCORD_WEBHOOK_URL` | 空（`discord.json`を読む） | Discord通知先。設定すると`discord.json`より優先される |
 
 ### 機能一覧
 

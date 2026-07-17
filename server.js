@@ -66,6 +66,22 @@ try {
   if (agents.size) console.log(`[state] 前回の盤面 ${agents.size} 件を復元`);
 } catch { /* 初回起動などファイルが無ければ何もしない */ }
 
+// 起動時に古いエントリを掃除する(SessionEndが飛ばない異常終了で残る「実行中」等の残骸対策)
+// 24時間より前の event.time を持つエントリは削除する(起動時のみ・定期実行はしない)
+{
+  const STALE_MS = 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  let removed = 0;
+  for (const [ai, a] of agents) {
+    const t = Date.parse(a.time);
+    if (Number.isFinite(t) && now - t > STALE_MS) { agents.delete(ai); removed++; }
+  }
+  if (removed) {
+    console.log(`[state] 24時間以上前の古いエントリを${removed}件削除`);
+    saveState();
+  }
+}
+
 function saveState() {
   writeFile(STATE_FILE, JSON.stringify([...agents.values()], null, 2), () => {});
 }
@@ -261,7 +277,12 @@ const server = http.createServer(async (req, res) => {
     res.write('retry: 3000\n\n');                                   // 切れたら3秒後に自動再接続
     send(res, { type: 'snapshot', agents: [...agents.values()] });  // 今の盤面を渡す
     clients.add(res);
-    req.on('close', () => clients.delete(res));
+    // 長時間アイドルでも経路で切られないよう、定期的にコメント行を送る(keep-alive)
+    const keepAlive = setInterval(() => res.write(':\n\n'), 20000);
+    req.on('close', () => {
+      clearInterval(keepAlive);   // 接続が閉じたらタイマーを止める(メモリリーク防止)
+      clients.delete(res);
+    });
     return;
   }
 
