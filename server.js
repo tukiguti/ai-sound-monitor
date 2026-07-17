@@ -23,6 +23,7 @@ import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { initVoiceBot, playInVoice, isVoiceConfigured } from './discord-voice.js';
 
 const PORT = process.env.PORT || 4123;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -179,9 +180,11 @@ async function speakOnce(text) {
   const file = path.join(tmpdir(), `ai-sound-monitor-${process.pid}-${speakSeq++}.wav`);
   await writeFileAsync(file, Buffer.from(await synthRes.arrayBuffer()));
   try {
-    await playFile(file);
+    // 同じWAVをローカル再生(afplay)とボイスチャンネル再生の両方で使い回す(VOICEVOXへ二重に合成を投げない)。
+    // allSettled にしているので、片方が失敗してももう片方は最後まで再生され、全体が落ちることもない。
+    await Promise.allSettled([playFile(file), playInVoice(file)]);
   } finally {
-    await unlink(file).catch(() => {});                       // 再生の成否にかかわらず片付ける
+    await unlink(file).catch(() => {});                       // 両方の再生が終わってから片付ける
   }
 }
 
@@ -347,5 +350,9 @@ server.listen(PORT, () => {
   console.log(discordWebhook
     ? '  Discord : 通知有効'
     : '  Discord : 未設定(discord.json か DISCORD_WEBHOOK_URL で有効化)');
+  console.log(isVoiceConfigured()
+    ? '  Discord Voice : 設定あり(接続を試みます… 結果は [voice-bot] ログに出ます)'
+    : '  Discord Voice : 未設定(discord.json か DISCORD_BOT_TOKEN / DISCORD_VOICE_CHANNEL_ID で有効化)');
   console.log('==============================================');
+  initVoiceBot();   // 設定があればボイスチャンネルへ接続(未設定/未installなら自動スキップ)
 });

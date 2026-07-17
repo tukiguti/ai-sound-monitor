@@ -16,7 +16,7 @@
 
 ## 設定（初回のみ）
 
-前提: macOS / Node.js（**外部パッケージのインストールは不要**）
+前提: macOS / Node.js（コア機能は**外部パッケージのインストール不要**。Discordボイスチャンネル読み上げ〈手順6〉だけは `npm install` が要る）
 
 ### 1. クローン
 
@@ -91,6 +91,56 @@ cp discord.json.example discord.json
 ```
 
 未登録のプロジェクトからイベントが届くと **names.json に自動で追記される**ので、あとから値（読み名）を書き換えるだけでよい。変更はサーバ再起動で反映。
+
+### 6. Discordボイスチャンネル（任意・ボイスチャンネルで読み上げさせたい場合）
+
+VOICEVOX の読み上げを、PCのスピーカーだけでなく **Discordのボイスチャンネルにも流す**機能。通話に参加しているメンバー全員に「〇〇が完了です」が聞こえる。
+
+- **この機能だけ `npm install` が必要**（他の機能は今まで通りインストール不要）。ボイスチャンネル用のライブラリ一式（`discord.js` / `@discordjs/voice` / `opusscript` / `libsodium-wrappers` / `ffmpeg-static`）をここでだけ入れる。ネイティブビルドは不要（`ffmpeg` も `ffmpeg-static` に同梱されるので別途インストール不要）。
+
+```bash
+cd ai-sound-monitor
+npm install
+```
+
+**Bot を作る**
+
+1. [Discord Developer Portal](https://discord.com/developers/applications) で **New Application** を作成
+2. 左メニューの **Bot** → **Reset Token**（または Add Bot）で **Token** を取得する（この Token は後述の `discord.json` に書く。**Token は他人に渡さない**）
+3. 同じ **Bot** ページで **Privileged Gateway Intents** は**すべてオフのままでよい**（読み上げにメッセージ内容の読み取りなどの特権 Intent は不要）
+
+**Bot をサーバーに招待する**
+
+1. 左メニューの **OAuth2** → **URL Generator**
+2. **Scopes** で `bot` にチェック
+3. **Bot Permissions** で `Connect`（接続）と `Speak`（発言）だけにチェック（不要な権限は付けない）
+4. 生成された URL を開き、読み上げさせたいサーバーに Bot を招待する
+
+**ボイスチャンネルIDを調べる**
+
+1. Discord の **ユーザー設定 → 詳細設定 → 開発者モード** をオンにする
+2. 読み上げさせたいボイスチャンネルを右クリック → **チャンネルIDをコピー**
+
+**設定を書く**
+
+`discord.json`（Webhook と同じファイル。まだ無ければ `cp discord.json.example discord.json`）に `botToken` と `voiceChannelId` を追記する:
+
+```json
+{
+  "webhookUrl": "https://discord.com/api/webhooks/...",
+  "botToken": "取得したBot Token",
+  "voiceChannelId": "コピーしたボイスチャンネルID"
+}
+```
+
+環境変数 `DISCORD_BOT_TOKEN` / `DISCORD_VOICE_CHANNEL_ID` でも設定できる（そちらが優先。`DISCORD_WEBHOOK_URL` と同じ扱い）。`discord.json` は **gitignore 済みでコミットされない**。
+
+**挙動**
+
+- サーバ起動時に `botToken` と `voiceChannelId` の**両方**が設定されていれば、自動でボイスチャンネルに接続する。片方でも欠けていれば何もしない（今まで通り `npm install` すら不要で動く）。
+- 接続後は、完了・承認待ちのタイミングで **ローカルのVOICEVOX読み上げと同じ内容**を、ボイスチャンネルでも読み上げる（同じ音声を使い回すので VOICEVOX への合成は1回だけ）。
+- Webhook のテキスト通知とは**併用**される。どちらか一方を選ぶものではなく、テキストは Webhook・音声はボイスチャンネル、と別々に届く。
+- `npm install` していない／設定していない／接続に失敗した場合は、`[voice-bot]` のログを1行出して**機能だけ無効になり、サーバ本体は普通に動く**（VOICEVOX 未起動時と同じ作法）。
 
 ---
 
@@ -183,6 +233,8 @@ pkill -f vv-engine          # VOICEVOX ENGINE停止（使っていた場合）
 | `VOICEVOX_SPEAKER` | `config.json` の `voice.speaker`（既定14=冥鳴ひまり） | 読み上げの話者ID。**設定するとconfig.jsonより優先される** |
 | `VOICEVOX_URL` | `http://localhost:50021` | VOICEVOX ENGINEの場所 |
 | `DISCORD_WEBHOOK_URL` | 空（`discord.json`を読む） | Discord通知先。設定すると`discord.json`より優先される |
+| `DISCORD_BOT_TOKEN` | 空（`discord.json`を読む） | ボイスチャンネル読み上げ用のBot Token。設定すると`discord.json`より優先される（要 `npm install`） |
+| `DISCORD_VOICE_CHANNEL_ID` | 空（`discord.json`を読む） | 読み上げさせるボイスチャンネルID。設定すると`discord.json`より優先される |
 
 ### 機能一覧
 
@@ -194,6 +246,7 @@ pkill -f vv-engine          # VOICEVOX ENGINE停止（使っていた場合）
 - [x] VOICEVOX 読み上げ — サーバ側(afplay)再生なのでブラウザ不要。ENGINE未起動なら自動スキップ
 - [x] 名前マップ（`names.json`・未登録は自動追記）＋同名複数時のみ番号読み
 - [x] Discord 通知 — 完了/承認待ち/エラーをWebhookに投稿（URLはコミット対象外）
+- [x] Discord ボイスチャンネル読み上げ（任意・要 `npm install`）— VOICEVOX と同じ内容をボイスチャンネルでも発話。未設定/未installなら自動スキップ
 
 ### ドキュメント
 
