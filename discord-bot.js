@@ -16,13 +16,17 @@
 //   /leave       … ボイスチャンネルから退出する
 //   /voice set   … 読み上げの話者・音量・速さを変更する(再起動不要)
 //   /voice show  … 現在の読み上げ設定を表示する
+//   /name set    … 表示名・読み上げ名(names.json)を変更する(再起動不要)
+//   /name list   … 現在の名前マップを一覧表示する
 // テキスト通知先は .discord-bot-state.json に保存し、サーバ再起動をまたいで覚えておく。
-// 読み上げ設定の読み書きは voice-settings.js に集約している(server.js も同じファイルを参照)。
+// 読み上げ設定の読み書きは voice-settings.js に、名前マップ(names.json)の読み書きは names-store.js に
+// 集約している(いずれも server.js も同じファイルを参照する)。
 
 import { readFileSync, writeFile } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { getVoiceConfig, setVoiceConfig } from './voice-settings.js';
+import { setName, listNames } from './names-store.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DISCORD_FILE = path.join(__dirname, 'discord.json');
@@ -142,7 +146,7 @@ async function login(discordjs, botToken) {
   }
 }
 
-// スラッシュコマンド(/notify・/join・/leave・/voice)をギルド単位で登録する。
+// スラッシュコマンド(/notify・/join・/leave・/voice・/name)をギルド単位で登録する。
 function registerCommands(discordjs, guild) {
   const { SlashCommandBuilder } = discordjs;
   const commands = [
@@ -169,6 +173,20 @@ function registerCommands(discordjs, guild) {
           .addNumberOption((opt) =>
             opt.setName('speed').setDescription('読み上げ速度(1.0=標準)').setMinValue(0.5).setMaxValue(2.0)))
       .addSubcommand((sub) => sub.setName('show').setDescription('現在の読み上げ設定を表示する')),
+    // /name set … プロジェクト(ディレクトリ名)の表示名・読み上げ名を変更 / /name list … 現在の名前マップを一覧。
+    // 変更は names.json に保存され、次のイベントから反映される(再起動不要)。
+    new SlashCommandBuilder()
+      .setName('name')
+      .setDescription('表示名・読み上げ名マップ(names.json)を変更する(再起動不要)')
+      .addSubcommand((sub) =>
+        sub
+          .setName('set')
+          .setDescription('プロジェクトの表示名・読み上げ名を設定する')
+          .addStringOption((opt) =>
+            opt.setName('base').setDescription('プロジェクトのディレクトリ名(例: zikken)').setRequired(true))
+          .addStringOption((opt) =>
+            opt.setName('label').setDescription('表示名・読み上げ名(例: 実験)').setRequired(true)))
+      .addSubcommand((sub) => sub.setName('list').setDescription('現在の名前マップ(base→label)を一覧表示する')),
   ].map((c) => c.toJSON());
   return guild.commands.set(commands);
 }
@@ -180,7 +198,30 @@ async function handleCommand(interaction) {
     case 'join':   return handleJoin(interaction);
     case 'leave':  return handleLeave(interaction);
     case 'voice':  return handleVoice(interaction);
+    case 'name':   return handleName(interaction);
   }
+}
+
+// /name set … プロジェクトの表示名・読み上げ名を変更する / /name list … 現在の名前マップを表示する。
+// 実際の読み書きは names-store.js に任せる(names.json に保存され、次のイベントから反映される)。
+async function handleName(interaction) {
+  if (interaction.options.getSubcommand() === 'list') {
+    const entries = Object.entries(listNames());
+    const body = entries.length
+      ? entries.map(([base, label]) => `・${base} → ${label}`).join('\n')
+      : '(まだ登録がありません)';
+    let content = '現在の名前マップ\n' + body;
+    // エントリが多くても Discord の 2000 文字制限で失敗しないよう軽く切り詰める。
+    if (content.length > 1900) content = content.slice(0, 1900) + '\n…(省略)';
+    await interaction.reply({ content, ephemeral: true });
+    return;
+  }
+  // set: base / label はどちらも必須(Discord 側で必須指定済み)。
+  const base = interaction.options.getString('base');
+  const label = interaction.options.getString('label');
+  setName(base, label);   // names.json に保存し、次のイベントから反映される
+  await interaction.reply({ content: `\`${base}\` の表示名を \`${label}\` に変更しました。`, ephemeral: true });
+  console.log('[discord-bot] 名前マップを変更しました');
 }
 
 // /voice set … 話者・音量・速さを変更する / /voice show … 現在の設定を表示する。

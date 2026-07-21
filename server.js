@@ -25,12 +25,12 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { initBot, playInVoice, isBotConfigured, sendText } from './discord-bot.js';
 import { getVoiceConfig } from './voice-settings.js';
+import { getLabel, registerName } from './names-store.js';
 
 const PORT = process.env.PORT || 4123;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const STATE_FILE = path.join(__dirname, '.state.json');
-const NAMES_FILE = path.join(__dirname, 'names.json');
 
 const VOICEVOX_URL = process.env.VOICEVOX_URL || 'http://localhost:50021';
 
@@ -85,19 +85,11 @@ function saveState() {
 }
 
 // --- ⑦ 名前マップ: ディレクトリ名 -> 表示名 (表示と読み上げの両方で使う) ---
+// マップの読み書き(names.json)は names-store.js に集約している(server.js ⇄ discord-bot.js の
+// 循環 import を避ける共通置き場。voice-settings.js と同じ考え方)。
+// server.js は baseOf() でセッションID部分を落とし、getLabel() / registerName() を呼ぶだけ。
 
-let names = {};
-try { names = JSON.parse(readFileSync(NAMES_FILE, 'utf8')); } catch { /* マップが無ければ素の名前を使う */ }
-
-const baseOf = (ai) => ai.split('#')[0];                  // セッションID部分を落とす
-const labelOf = (ai) => names[baseOf(ai)] || baseOf(ai);  // マップに無ければそのまま
-
-// 未登録のプロジェクトをnames.jsonに自動追記する(読み名は人間が後で書き換える)
-function registerName(base) {
-  names[base] = base;
-  writeFile(NAMES_FILE, JSON.stringify(names, null, 2) + '\n', () => {});
-  console.log(`[names] 新しいプロジェクト「${base}」を names.json に登録しました(読み名は編集で変更できます)`);
-}
+const baseOf = (ai) => ai.split('#')[0];   // セッションID部分を落とす
 
 // 同じベース名の稼働中セッションに 1,2,3… を振る(空き番号の最小を使う)
 function assignNum(ai) {
@@ -217,8 +209,9 @@ function handleEvent(event) {
   }
   const prev = agents.get(event.ai);
   event.num = prev ? prev.num : assignNum(event.ai);   // セッション存続中は番号を変えない
-  if (!(baseOf(event.ai) in names)) registerName(baseOf(event.ai));
-  event.label = labelOf(event.ai);
+  const base = baseOf(event.ai);
+  registerName(base);              // 未登録なら names.json に自動追記(登録済みなら何もしない)
+  event.label = getLabel(base);
 
   agents.set(event.ai, event);                 // 現在状態を更新(同名は上書き)
   saveState();
