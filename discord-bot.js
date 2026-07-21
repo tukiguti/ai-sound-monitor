@@ -14,11 +14,15 @@
 //   /notify off  … テキスト通知を止める
 //   /join        … 実行者が今いるボイスチャンネルにBotを参加させる
 //   /leave       … ボイスチャンネルから退出する
+//   /voice set   … 読み上げの話者・音量・速さを変更する(再起動不要)
+//   /voice show  … 現在の読み上げ設定を表示する
 // テキスト通知先は .discord-bot-state.json に保存し、サーバ再起動をまたいで覚えておく。
+// 読み上げ設定の読み書きは voice-settings.js に集約している(server.js も同じファイルを参照)。
 
 import { readFileSync, writeFile } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { getVoiceConfig, setVoiceConfig } from './voice-settings.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DISCORD_FILE = path.join(__dirname, 'discord.json');
@@ -138,7 +142,7 @@ async function login(discordjs, botToken) {
   }
 }
 
-// スラッシュコマンド4つ(/notify here・/notify off・/join・/leave)をギルド単位で登録する。
+// スラッシュコマンド(/notify・/join・/leave・/voice)をギルド単位で登録する。
 function registerCommands(discordjs, guild) {
   const { SlashCommandBuilder } = discordjs;
   const commands = [
@@ -149,6 +153,22 @@ function registerCommands(discordjs, guild) {
       .addSubcommand((sub) => sub.setName('off').setDescription('テキスト通知を止める')),
     new SlashCommandBuilder().setName('join').setDescription('自分が今いるボイスチャンネルにBotを呼ぶ'),
     new SlashCommandBuilder().setName('leave').setDescription('ボイスチャンネルから退出する'),
+    // /voice set … 話者・音量・速さを変更(指定した項目だけ) / /voice show … 現在の設定を表示。
+    // 範囲は Discord 側で軽くガードする(話者IDの有効性はここでは検証しない=無効なら次の読み上げ時に失敗するだけ)。
+    new SlashCommandBuilder()
+      .setName('voice')
+      .setDescription('読み上げの話者・音量・速さを変更する(再起動不要)')
+      .addSubcommand((sub) =>
+        sub
+          .setName('set')
+          .setDescription('話者・音量・速さを変更する(指定した項目だけ変わる)')
+          .addIntegerOption((opt) =>
+            opt.setName('speaker').setDescription('VOICEVOXの話者ID(例: 3=ずんだもん / 14=冥鳴ひまり)'))
+          .addNumberOption((opt) =>
+            opt.setName('volume').setDescription('読み上げ音量(1.0=標準)').setMinValue(0).setMaxValue(3))
+          .addNumberOption((opt) =>
+            opt.setName('speed').setDescription('読み上げ速度(1.0=標準)').setMinValue(0.5).setMaxValue(2.0)))
+      .addSubcommand((sub) => sub.setName('show').setDescription('現在の読み上げ設定を表示する')),
   ].map((c) => c.toJSON());
   return guild.commands.set(commands);
 }
@@ -159,7 +179,35 @@ async function handleCommand(interaction) {
     case 'notify': return handleNotify(interaction);
     case 'join':   return handleJoin(interaction);
     case 'leave':  return handleLeave(interaction);
+    case 'voice':  return handleVoice(interaction);
   }
+}
+
+// /voice set … 話者・音量・速さを変更する / /voice show … 現在の設定を表示する。
+// 実際の読み書きは voice-settings.js に任せる(config.json ではなく .voice-override.json に保存される)。
+async function handleVoice(interaction) {
+  if (interaction.options.getSubcommand() === 'show') {
+    await interaction.reply({ content: '現在の読み上げ設定 — ' + voiceSummary(getVoiceConfig()), ephemeral: true });
+    return;
+  }
+  // set: 指定された項目だけを拾う(未指定は null → setVoiceConfig 側で無視される)。
+  const partial = {
+    speaker: interaction.options.getInteger('speaker'),
+    volume: interaction.options.getNumber('volume'),
+    speed: interaction.options.getNumber('speed'),
+  };
+  if (partial.speaker === null && partial.volume === null && partial.speed === null) {
+    await interaction.reply({ content: 'speaker / volume / speed を1つ以上指定してください。', ephemeral: true });
+    return;
+  }
+  const voice = setVoiceConfig(partial);   // .voice-override.json に保存し、次の読み上げから反映される
+  await interaction.reply({ content: '読み上げ設定を変更しました — ' + voiceSummary(voice), ephemeral: true });
+  console.log('[discord-bot] 読み上げ設定を変更しました');
+}
+
+// 設定を1行の日本語にまとめる(コマンドの返信用)。
+function voiceSummary(voice) {
+  return `話者${voice.speaker}・音量${voice.volume}・速さ${voice.speed}`;
 }
 
 // /notify here … このチャンネルを通知先にする / /notify off … 通知を止める。

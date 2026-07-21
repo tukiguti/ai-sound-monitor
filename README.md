@@ -68,6 +68,8 @@ cp claude-hooks.example.json ~/GitHub/myproject/.claude/settings.json
 
 話者IDの全一覧: `curl -s http://localhost:50021/speakers | jq -r '.[] | .name as $n | .styles[] | "\(.id)=\($n)（\(.name)）"'`
 
+Discord Bot（手順4）が使える場合は、`config.json` を書き換えなくても **`/voice set` コマンドで話者・音量・速さを変更できる（サーバ再起動不要・次の読み上げから反映）**。`config.json` は再起動後の既定値として残る。
+
 ### 4. Discord Bot（任意・スマホでも気づきたい／ボイスチャンネルで読み上げたい場合）
 
 完了・承認待ち・エラーを **Discord のテキストチャンネルに投稿**したり、VOICEVOX の読み上げを **Discord のボイスチャンネルにも流す**機能。どちらも1つの Bot で行い、通知先はスラッシュコマンドで指定する（設定ファイルにチャンネルIDを書く必要はない）。
@@ -105,6 +107,7 @@ cp discord.json.example discord.json
 
 - **テキスト通知**: 通知してほしいテキストチャンネルに Bot を招待し、そのチャンネルで **`/notify here`** を実行 → 以後そのチャンネルに ✅完了 / ⏳承認待ち / ⛔エラー が届く。止めたいときは **`/notify off`**。
 - **ボイス読み上げ**: 自分が読み上げさせたいボイスチャンネルに入った状態で **`/join`** を実行 → Bot がそのVCに参加し、以後 VOICEVOX と同じ内容をボイスチャンネルでも読み上げる（同じ音声を使い回すので合成は1回だけ）。退出は **`/leave`**。
+- **読み上げ設定**: **`/voice set`** で話者・音量・速さを変更できる（`speaker`・`volume`・`speed` のうち指定したものだけ変わる／サーバ再起動不要・次の読み上げから反映）。現在の設定は **`/voice show`** で確認できる。変更値は `.voice-override.json`（gitignore 済み）に保存され、`config.json` の既定値は書き換えない。
 - テキスト通知先（どのチャンネルか）は覚えているので、サーバを再起動しても `/notify here` を打ち直す必要はない。ボイスは再起動後に `/join` し直す。
 - `npm install` していない／Token 未設定／接続に失敗した場合は、`[discord-bot]` のログを1行出して**機能だけ無効になり、サーバ本体は普通に動く**（VOICEVOX 未起動時と同じ作法）。
 

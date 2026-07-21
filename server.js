@@ -9,7 +9,7 @@
 //   ⑥ VOICEVOX で「〇〇が完了です」と読み上げる (ENGINE未起動なら自動スキップ)
 //   ⑦ names.json でAI名を表示名に変換し、同名が複数あるときは番号(1,2,3…)で区別する
 //   ⑧ Discord Bot へ完了・承認待ち・エラーを投稿する (通知先は /notify here で指定・未指定なら何もしない)
-//   ⑨ config.json で話者・音量・速さ・チャイム音量を設定できる
+//   ⑨ config.json で話者・音量・速さ・チャイム音量を設定できる(話者・音量・速さは Discord の /voice set でも再起動なしに変更可)
 //
 // 状態の特別扱い:
 //   state=ended … そのAI(セッション)を盤面から取り除く (SessionEnd hook用)
@@ -24,6 +24,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { initBot, playInVoice, isBotConfigured, sendText } from './discord-bot.js';
+import { getVoiceConfig } from './voice-settings.js';
 
 const PORT = process.env.PORT || 4123;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -33,24 +34,21 @@ const NAMES_FILE = path.join(__dirname, 'names.json');
 
 const VOICEVOX_URL = process.env.VOICEVOX_URL || 'http://localhost:50021';
 
-// ===== 音の設定 (config.json) =====
-// config.json の数値を書き換えてサーバ再起動で反映(チャイム音量はブラウザ再読み込みも必要)
-//   voice.speaker: 話者ID  2=四国めたん 3=ずんだもん 8=春日部つむぎ 13=青山龍星 14=冥鳴ひまり
-//     全一覧: curl -s http://localhost:50021/speakers | jq -r '.[] | .name as $n | .styles[] | "\(.id)=\($n)（\(.name)）"'
-//   voice.volume / voice.speed: 読み上げの音量・速さ(1.0=標準)
-//   chime.volume: ブラウザのチャイム音量の倍率(1.0=標準、0で消音)
+// ===== 音の設定 =====
+// 読み上げ(話者・音量・速さ)は voice-settings.js が一元管理する(config.json の voice + .voice-override.json)。
+//   getVoiceConfig() を読み上げのたびに呼ぶことで、/voice set の変更が再起動なしに次の読み上げから反映される。
+//   話者IDの全一覧: curl -s http://localhost:50021/speakers | jq -r '.[] | .name as $n | .styles[] | "\(.id)=\($n)（\(.name)）"'
+// ここで config.json から読むのはブラウザのチャイム音量(chime.volume)だけ(1.0=標準、0で消音)。
+//   反映にはサーバ再起動＋ブラウザ再読み込みが必要(今回のスコープ外)。
 const CONFIG_FILE = path.join(__dirname, 'config.json');
 const config = {
-  voice: { speaker: 14, volume: 1.0, speed: 1.0 },
   chime: { volume: 1.0 },
 };
 try {
   const user = JSON.parse(readFileSync(CONFIG_FILE, 'utf8'));
-  Object.assign(config.voice, user.voice);
   Object.assign(config.chime, user.chime);
 } catch { /* config.jsonが無い/壊れていれば既定値で動く */ }
 
-const VOICEVOX_SPEAKER = process.env.VOICEVOX_SPEAKER || String(config.voice.speaker);
 const SPEAK_STATES = { done: 'が完了です', waiting: 'が承認待ちです' };  // 読み上げる状態と語尾
 
 // Discordへ投げる状態と文面(working/ended は通知しない)
@@ -141,7 +139,8 @@ async function runSpeakQueue() {
 
 // ①audio_query → ②synthesis → ③一時WAVに書く → ④afplayで再生 → ⑤一時ファイル削除
 async function speakOnce(text) {
-  const speaker = encodeURIComponent(VOICEVOX_SPEAKER);
+  const voice = getVoiceConfig();                             // 読み上げのたびに現在の設定を取り込む(/voice set が即反映される)
+  const speaker = encodeURIComponent(voice.speaker);
   const queryRes = await fetch(
     `${VOICEVOX_URL}/audio_query?speaker=${speaker}&text=${encodeURIComponent(text)}`,
     { method: 'POST', signal: AbortSignal.timeout(10000) },   // ENGINEが無反応でもキューを詰まらせない
@@ -149,8 +148,8 @@ async function speakOnce(text) {
   if (!queryRes.ok) throw new Error(`audio_query が ${queryRes.status}`);
 
   const query = await queryRes.json();
-  query.volumeScale = config.voice.volume;                    // 音量・速さは config.json から
-  query.speedScale = config.voice.speed;
+  query.volumeScale = voice.volume;                           // 音量・速さは現在の設定から(voice-settings.js)
+  query.speedScale = voice.speed;
   const synthRes = await fetch(`${VOICEVOX_URL}/synthesis?speaker=${speaker}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

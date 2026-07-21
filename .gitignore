@@ -3,4 +3,5 @@ node_modules/
 *.log
 .state.json
 .discord-bot-state.json
+.voice-override.json
 discord.json
