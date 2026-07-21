@@ -8,7 +8,7 @@
 //   ⑤ 状態を .state.json に保存し、サーバ再起動後も盤面を復元する
 //   ⑥ VOICEVOX で「〇〇が完了です」と読み上げる (ENGINE未起動なら自動スキップ)
 //   ⑦ names.json でAI名を表示名に変換し、同名が複数あるときは番号(1,2,3…)で区別する
-//   ⑧ Discord Webhook へ完了・承認待ち・エラーを投稿する (未設定なら何もしない)
+//   ⑧ Discord Bot へ完了・承認待ち・エラーを投稿する (通知先は /notify here で指定・未指定なら何もしない)
 //   ⑨ config.json で話者・音量・速さ・チャイム音量を設定できる
 //
 // 状態の特別扱い:
@@ -23,14 +23,13 @@ import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { initVoiceBot, playInVoice, isVoiceConfigured } from './discord-voice.js';
+import { initBot, playInVoice, isBotConfigured, sendText } from './discord-bot.js';
 
 const PORT = process.env.PORT || 4123;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const STATE_FILE = path.join(__dirname, '.state.json');
 const NAMES_FILE = path.join(__dirname, 'names.json');
-const DISCORD_FILE = path.join(__dirname, 'discord.json');
 
 const VOICEVOX_URL = process.env.VOICEVOX_URL || 'http://localhost:50021';
 
@@ -111,25 +110,8 @@ function assignNum(ai) {
   return n;
 }
 
-// --- ⑧ Discord通知: 環境変数が最優先、無ければ discord.json (どちらも無ければ通知しない) ---
-
-let discordWebhook = process.env.DISCORD_WEBHOOK_URL || '';
-if (!discordWebhook) {
-  try { discordWebhook = JSON.parse(readFileSync(DISCORD_FILE, 'utf8')).webhookUrl || ''; } catch { /* 未設定なら通知しない */ }
-}
-
-// Discordへ投げっぱなしで通知する(未設定なら何もしない / 失敗してもサーバは止めない)
-function notifyDiscord(text) {
-  if (!discordWebhook) return;
-  fetch(discordWebhook, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content: text }),
-    signal: AbortSignal.timeout(5000),      // Discordが無反応でも5秒で諦める
-  }).then((res) => {
-    if (!res.ok) console.log(`[discord] 通知失敗: HTTP ${res.status}`);
-  }).catch((e) => console.log('[discord] 通知失敗: ' + e.message));
-}
+// --- ⑧ Discord通知は discord-bot.js が担当(テキストは sendText / ボイスは playInVoice)。
+//        通知先は Bot のスラッシュコマンド /notify here で指定する(未指定なら投稿しない)。 ---
 
 // --- ⑥ VOICEVOX 読み上げ (サーバ側で再生するのでブラウザを開いていなくても喋る) ---
 
@@ -253,7 +235,7 @@ function handleEvent(event) {
 
   // Discordへは完了・承認待ち・エラーを投稿する(working は対象外)
   if (STATE_TEXT[event.state]) {
-    notifyDiscord(`${STATE_EMOJI[event.state]} **${who}**${STATE_TEXT[event.state]}${event.message ? ' — ' + event.message : ''}`);
+    sendText(`${STATE_EMOJI[event.state]} **${who}**${STATE_TEXT[event.state]}${event.message ? ' — ' + event.message : ''}`);
   }
 
   console.log(`[notify] ${event.ai} → ${event.state} ${event.message ? '(' + event.message + ')' : ''}  監視中:${agents.size}  ブラウザ:${clients.size}`);
@@ -347,12 +329,9 @@ server.listen(PORT, () => {
   console.log(' AI Sound Monitor 起動');
   console.log(`  画面   : http://localhost:${PORT}`);
   console.log(`  鳴らす : curl "http://localhost:${PORT}/notify?state=done&ai=test"`);
-  console.log(discordWebhook
-    ? '  Discord : 通知有効'
-    : '  Discord : 未設定(discord.json か DISCORD_WEBHOOK_URL で有効化)');
-  console.log(isVoiceConfigured()
-    ? '  Discord Voice : 設定あり(接続を試みます… 結果は [voice-bot] ログに出ます)'
-    : '  Discord Voice : 未設定(discord.json か DISCORD_BOT_TOKEN / DISCORD_VOICE_CHANNEL_ID で有効化)');
+  console.log(isBotConfigured()
+    ? '  Discord Bot : 設定あり(ログインを試みます… 結果は [discord-bot] ログに出ます。通知先は /notify here、読み上げは /join で指定)'
+    : '  Discord Bot : 未設定(discord.json か DISCORD_BOT_TOKEN で有効化・要 npm install)');
   console.log('==============================================');
-  initVoiceBot();   // 設定があればボイスチャンネルへ接続(未設定/未installなら自動スキップ)
+  initBot();   // Bot Token があればログイン(未設定/未installなら自動スキップ)
 });
