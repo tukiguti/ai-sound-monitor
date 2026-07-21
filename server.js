@@ -6,13 +6,15 @@
 //   ③ /events  … ブラウザへ Server-Sent Events(SSE) でイベントを中継する
 //   ④ 各AIの「現在状態」を保持し、ブラウザ接続時にスナップショットを送る
 //   ⑤ 状態を .state.json に保存し、サーバ再起動後も盤面を復元する
-//   ⑥ VOICEVOX で「〇〇が完了です」と読み上げる (ENGINE未起動なら自動スキップ)
+//   ⑥ VOICEVOX で「〇〇が一段落しました」と読み上げる (ENGINE未起動なら自動スキップ)
 //   ⑦ names.json でAI名を表示名に変換し、同名が複数あるときは番号(1,2,3…)で区別する
-//   ⑧ Discord Bot へ完了・承認待ち・エラーを投稿する (通知先は /notify here で指定・未指定なら何もしない)
+//   ⑧ Discord Bot へ一段落・承認待ち・エラーを投稿する (通知先は /notify here で指定・未指定なら何もしない)
 //   ⑨ config.json で話者・音量・速さ・チャイム音量を設定できる(話者・音量・速さは Discord の /voice set でも再起動なしに変更可)
 //
 // 状態の特別扱い:
 //   state=ended … そのAI(セッション)を盤面から取り除く (SessionEnd hook用)
+//   quiet=1     … 盤面更新・SSE配信(ブラウザのチャイム)は従来どおり行い、読み上げとDiscord投稿だけ抑制する
+//                 (短いターンの「一段落」を鳴らしすぎない用。hook側が経過時間で付ける)
 //
 // 起動: node server.js   (または npm start)
 
@@ -49,10 +51,10 @@ try {
   Object.assign(config.chime, user.chime);
 } catch { /* config.jsonが無い/壊れていれば既定値で動く */ }
 
-const SPEAK_STATES = { done: 'が完了です', waiting: 'が承認待ちです' };  // 読み上げる状態と語尾
+const SPEAK_STATES = { done: 'が一段落しました', waiting: 'が承認待ちです' };  // 読み上げる状態と語尾
 
 // Discordへ投げる状態と文面(working/ended は通知しない)
-const STATE_TEXT = { done: 'が完了です', waiting: 'が承認待ちです', error: 'がエラーです' };
+const STATE_TEXT = { done: 'が一段落しました', waiting: 'が承認待ちです', error: 'がエラーです' };
 const STATE_EMOJI = { done: '✅', waiting: '⏳', error: '⛔' };
 
 const clients = new Set();        // 接続中のブラウザ(SSEクライアント)
@@ -195,6 +197,7 @@ function buildEvent(params, body) {
     ai: data.ai || params.get('ai') || 'AI',
     state: data.state || params.get('state') || 'done',
     message: data.message || params.get('message') || '',
+    quiet: data.quiet || params.get('quiet') || '',   // truthy なら読み上げとDiscord投稿だけ抑制(盤面・チャイムは通常どおり)
     time: new Date().toISOString(),
   };
 }
@@ -221,16 +224,20 @@ function handleEvent(event) {
   const live = [...agents.values()].filter((a) => baseOf(a.ai) === baseOf(event.ai)).length;
   const who = live > 1 ? `${event.label}の${event.num}番` : event.label;
 
+  // quiet(短いターン等)のときは、盤面更新・broadcast(チャイム)は上で済ませたうえで、
+  // 読み上げ(speak)とDiscord投稿(sendText)だけを抑制する。「意味のある区切り」だけを声/通知に絞るため。
+  const quiet = !!event.quiet;
+
   // 完了・承認待ちだけ読み上げる(working/error はチャイム音のみ)
   const suffix = SPEAK_STATES[event.state];
-  if (suffix) speak(who + suffix);
+  if (suffix && !quiet) speak(who + suffix);
 
   // Discordへは完了・承認待ち・エラーを投稿する(working は対象外)
-  if (STATE_TEXT[event.state]) {
+  if (STATE_TEXT[event.state] && !quiet) {
     sendText(`${STATE_EMOJI[event.state]} **${who}**${STATE_TEXT[event.state]}${event.message ? ' — ' + event.message : ''}`);
   }
 
-  console.log(`[notify] ${event.ai} → ${event.state} ${event.message ? '(' + event.message + ')' : ''}  監視中:${agents.size}  ブラウザ:${clients.size}`);
+  console.log(`[notify] ${event.ai} → ${event.state}${quiet ? ' (quiet)' : ''} ${event.message ? '(' + event.message + ')' : ''}  監視中:${agents.size}  ブラウザ:${clients.size}`);
 }
 
 const server = http.createServer(async (req, res) => {
