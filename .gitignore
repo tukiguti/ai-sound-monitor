@@ -1,7 +1,7 @@
 node_modules/
 .DS_Store
 *.log
-.state.json
-.discord-bot-state.json
-.voice-override.json
-discord.json
+nohup.out
+.data/
+config/discord.json
+.claude/
