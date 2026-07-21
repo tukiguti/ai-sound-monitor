@@ -324,7 +324,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '127.0.0.1', () => {   // localhost(ループバック)のみで待受(認証なし前提・同一LANからは叩けない)
   console.log('==============================================');
   console.log(' AI Sound Monitor 起動');
   console.log(`  画面   : http://localhost:${PORT}`);
