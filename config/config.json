@@ -6,5 +6,8 @@
   },
   "chime": {
     "volume": 1.0
+  },
+  "notify": {
+    "quietSeconds": 60
   }
 }

@@ -13,8 +13,10 @@
 //
 // 状態の特別扱い:
 //   state=ended … そのAI(セッション)を盤面から取り除く (SessionEnd hook用)
-//   quiet=1     … 盤面更新・SSE配信(ブラウザのチャイム)は従来どおり行い、読み上げとDiscord投稿だけ抑制する
-//                 (短いターンの「一段落」を鳴らしすぎない用。hook側が経過時間で付ける)
+//   quiet       … 盤面更新・SSE配信(ブラウザのチャイム)は従来どおり行い、読み上げとDiscord投稿だけ抑制する
+//                 (短いターンの「一段落」を鳴らしすぎない用)。手動の quiet=1 が来たら quiet、加えて
+//                 done かつ hook が送る経過秒数 elapsed が config.notify.quietSeconds 未満なら自動で quiet にする
+//                 (閾値の判定は hook 側でなくサーバ側で行い、config/config.json で調整できる)
 //
 // 起動: node server.js   (または npm start)
 
@@ -45,15 +47,18 @@ const VOICEVOX_URL = process.env.VOICEVOX_URL || 'http://localhost:50021';
 // 読み上げ(話者・音量・速さ)は lib/voice-settings.js が一元管理する(config/config.json の voice + .data/voice-override.json)。
 //   getVoiceConfig() を読み上げのたびに呼ぶことで、/voice set の変更が再起動なしに次の読み上げから反映される。
 //   話者IDの全一覧: curl -s http://localhost:50021/speakers | jq -r '.[] | .name as $n | .styles[] | "\(.id)=\($n)（\(.name)）"'
-// ここで config/config.json から読むのはブラウザのチャイム音量(chime.volume)だけ(1.0=標準、0で消音)。
-//   反映にはサーバ再起動＋ブラウザ再読み込みが必要(今回のスコープ外)。
+// ここで config/config.json から読むのは、ブラウザのチャイム音量(chime.volume。1.0=標準、0で消音)と、
+//   短いターンの通知抑制の閾値(notify.quietSeconds。この秒数未満の done ターンは読み上げ・Discordを抑制。0で無効)。
+//   どちらもサーバ起動時に1回だけ読む(反映はサーバ再起動。chime.volume はブラウザ再読み込みも必要)。
 const CONFIG_FILE = path.join(__dirname, 'config', 'config.json');
 const config = {
   chime: { volume: 1.0 },
+  notify: { quietSeconds: 60 },   // この秒数未満の短い done ターンは quiet 扱い(読み上げ・Discord抑制)。0で無効=毎回鳴る
 };
 try {
   const user = JSON.parse(readFileSync(CONFIG_FILE, 'utf8'));
   Object.assign(config.chime, user.chime);
+  Object.assign(config.notify, user.notify);   // user.notify が無ければ既定値のまま(Object.assign は undefined を無視)
 } catch { /* config/config.jsonが無い/壊れていれば既定値で動く */ }
 
 const SPEAK_STATES = { done: 'が一段落しました', waiting: 'が承認待ちです' };  // 読み上げる状態と語尾
@@ -203,6 +208,7 @@ function buildEvent(params, body) {
     state: data.state || params.get('state') || 'done',
     message: data.message || params.get('message') || '',
     quiet: data.quiet || params.get('quiet') || '',   // truthy なら読み上げとDiscord投稿だけ抑制(盤面・チャイムは通常どおり)
+    elapsed: data.elapsed || params.get('elapsed') || '',   // hook が送るターンの経過秒数(quiet判定に使う。欠損なら空)
     time: new Date().toISOString(),
   };
 }
@@ -231,7 +237,13 @@ function handleEvent(event) {
 
   // quiet(短いターン等)のときは、盤面更新・broadcast(チャイム)は上で済ませたうえで、
   // 読み上げ(speak)とDiscord投稿(sendText)だけを抑制する。「意味のある区切り」だけを声/通知に絞るため。
-  const quiet = !!event.quiet;
+  // 判定は2通り: ①手動curl等で quiet=1 が明示されていれば quiet(後方互換)。
+  //   ②加えて、done かつ elapsed が数値として解釈でき、閾値 config.notify.quietSeconds 未満の短いターンも quiet。
+  //   elapsed が欠損・非数値なら計測不能とみなし従来どおり鳴らす(空文字は Number で 0 になるので明示的に弾く)。
+  const elapsedNum = Number(event.elapsed);
+  const hasElapsed = event.elapsed !== '' && Number.isFinite(elapsedNum);
+  const shortTurn = event.state === 'done' && hasElapsed && elapsedNum < config.notify.quietSeconds;
+  const quiet = !!event.quiet || shortTurn;
 
   // 完了・承認待ちだけ読み上げる(working/error はチャイム音のみ)
   const suffix = SPEAK_STATES[event.state];
@@ -242,7 +254,10 @@ function handleEvent(event) {
     sendText(`${STATE_EMOJI[event.state]} **${who}**${STATE_TEXT[event.state]}${event.message ? ' — ' + event.message : ''}`);
   }
 
-  console.log(`[notify] ${event.ai} → ${event.state}${quiet ? ' (quiet)' : ''} ${event.message ? '(' + event.message + ')' : ''}  監視中:${agents.size}  ブラウザ:${clients.size}`);
+  // ログの印: elapsed があれば秒数も出して閾値調整の参考にする。quiet なら (quiet 42s)、通常doneでも (123s)。
+  const secs = hasElapsed ? `${elapsedNum}s` : '';
+  const mark = quiet ? `(quiet${secs ? ' ' + secs : ''})` : (secs ? `(${secs})` : '');
+  console.log(`[notify] ${event.ai} → ${event.state}${mark ? ' ' + mark : ''} ${event.message ? '(' + event.message + ')' : ''}  監視中:${agents.size}  ブラウザ:${clients.size}`);
 }
 
 const server = http.createServer(async (req, res) => {

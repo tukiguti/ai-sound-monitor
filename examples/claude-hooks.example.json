@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "input=$(cat); sid=$(printf '%s' \"$input\" | jq -r '.session_id // empty' 2>/dev/null | cut -c1-6); name=\"$(basename \"${CLAUDE_PROJECT_DIR:-Claude}\")${sid:+#$sid}\"; q=\"\"; if [ -n \"$sid\" ] && [ -f \"/tmp/asm-turn-$sid\" ]; then s=$(cat \"/tmp/asm-turn-$sid\" 2>/dev/null); now=$(date +%s); case \"$s\" in (*[!0-9]*|\"\") ;; (*) [ $((now - s)) -lt 180 ] && q=1 ;; esac; fi; (curl -s -m 1 -G http://localhost:4123/notify --data-urlencode state=done --data-urlencode \"ai=$name\" ${q:+--data-urlencode quiet=1} >/dev/null 2>&1 &)"
+            "command": "input=$(cat); sid=$(printf '%s' \"$input\" | jq -r '.session_id // empty' 2>/dev/null | cut -c1-6); name=\"$(basename \"${CLAUDE_PROJECT_DIR:-Claude}\")${sid:+#$sid}\"; e=\"\"; if [ -n \"$sid\" ] && [ -f \"/tmp/asm-turn-$sid\" ]; then s=$(cat \"/tmp/asm-turn-$sid\" 2>/dev/null); now=$(date +%s); case \"$s\" in (*[!0-9]*|\"\") ;; (*) e=$((now - s)) ;; esac; fi; (curl -s -m 1 -G http://localhost:4123/notify --data-urlencode state=done --data-urlencode \"ai=$name\" ${e:+--data-urlencode elapsed=$e} >/dev/null 2>&1 &)"
           }
         ]
       }
